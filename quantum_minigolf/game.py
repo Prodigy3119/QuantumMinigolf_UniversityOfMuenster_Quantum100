@@ -13,6 +13,7 @@ except Exception:
     Slider = None  # type: ignore
 
 from .tracker import TrackerManager, TrackerConfig
+from .calibration import CalibrationData
 from .config import GameConfig
 from .backends import Backend
 from .course import Course
@@ -67,14 +68,39 @@ class QuantumMiniGolfGame:
         self.tracker_cfg = None
         self._tracker_timer = None
         if getattr(self.cfg, 'use_tracker', False):
+            calibration = None
+            calib_path_raw = getattr(self.cfg, 'tracker_calibration_path', None)
+            candidate_paths: list[Path] = []
+            if calib_path_raw:
+                candidate_paths.append(Path(calib_path_raw))
+            else:
+                candidate_paths.extend(
+                    [
+                        Path("calibration") / "course_calibration.pkl",
+                        Path("calibration") / "course_calibration.json",
+                    ]
+                )
+            for candidate in candidate_paths:
+                try:
+                    if candidate.exists():
+                        calibration = CalibrationData.load(candidate)
+                        print(f"Tracker calibration loaded from {candidate}")
+                        break
+                except Exception as exc:
+                    print(f"Tracker calibration load failed ({candidate}): {exc}")
             try:
-                self.tracker_cfg = TrackerConfig(
+                tracker_kwargs = dict(
                     show_debug_window=self.cfg.tracker_debug_window,
                     crop_x1=getattr(self.cfg, 'tracker_crop_x1', None),
                     crop_x2=getattr(self.cfg, 'tracker_crop_x2', None),
                     crop_y1=getattr(self.cfg, 'tracker_crop_y1', None),
                     crop_y2=getattr(self.cfg, 'tracker_crop_y2', None),
                 )
+                if calibration is not None:
+                    tracker_kwargs["frame_width"] = calibration.frame_width
+                    tracker_kwargs["frame_height"] = calibration.frame_height
+                    tracker_kwargs["calibration"] = calibration
+                self.tracker_cfg = TrackerConfig(**tracker_kwargs)
                 self.tracker = TrackerManager(self.tracker_cfg)
                 self.tracker.start()
             except Exception as exc:
@@ -507,16 +533,54 @@ class QuantumMiniGolfGame:
     def _tracker_px_to_game(self, px: tuple[float, float]) -> tuple[float, float]:
         if not self.tracker_cfg:
             return float(px[0]), float(px[1])
-        x = px[0] / self.tracker_cfg.frame_width * self.Nx
-        y = (1.0 - px[1] / self.tracker_cfg.frame_height) * self.Ny
-        return float(x), float(y)
+        calibration = getattr(self.tracker_cfg, "calibration", None)
+        if calibration is None:
+            x = px[0] / self.tracker_cfg.frame_width * self.Nx
+            y = (1.0 - px[1] / self.tracker_cfg.frame_height) * self.Ny
+            return float(x), float(y)
+        board_x, board_y = calibration.camera_to_board(px)
+        board_x = float(np.clip(board_x, 0.0, calibration.board_width))
+        board_y = float(np.clip(board_y, 0.0, calibration.board_height))
+        scale_x = self.Nx / max(calibration.board_width, 1e-6)
+        scale_y = self.Ny / max(calibration.board_height, 1e-6)
+        game_x = float(board_x * scale_x)
+        game_y = float((calibration.board_height - board_y) * scale_y)
+        return game_x, game_y
 
-    def _tracker_dir_to_game(self, direction_px: tuple[float, float]) -> np.ndarray:
+    def _tracker_dir_to_game(
+        self,
+        origin_px: tuple[float, float],
+        direction_px: tuple[float, float],
+    ) -> np.ndarray:
         if not self.tracker_cfg:
             return np.array(direction_px, dtype=float)
-        scale_x = self.Nx / self.tracker_cfg.frame_width
-        scale_y = self.Ny / self.tracker_cfg.frame_height
-        return np.array([direction_px[0] * scale_x, -direction_px[1] * scale_y], dtype=float)
+        calibration = getattr(self.tracker_cfg, "calibration", None)
+        if calibration is None:
+            scale_x = self.Nx / self.tracker_cfg.frame_width
+            scale_y = self.Ny / self.tracker_cfg.frame_height
+            return np.array([direction_px[0] * scale_x, -direction_px[1] * scale_y], dtype=float)
+
+        origin_board_raw = calibration.camera_to_board(origin_px)
+        origin_board = (
+            float(np.clip(origin_board_raw[0], 0.0, calibration.board_width)),
+            float(np.clip(origin_board_raw[1], 0.0, calibration.board_height)),
+        )
+        tip_px = (origin_px[0] + direction_px[0], origin_px[1] + direction_px[1])
+        tip_board_raw = calibration.camera_to_board(tip_px)
+        tip_board = (
+            float(np.clip(tip_board_raw[0], 0.0, calibration.board_width)),
+            float(np.clip(tip_board_raw[1], 0.0, calibration.board_height)),
+        )
+        delta_board = np.array(
+            [tip_board[0] - origin_board[0], tip_board[1] - origin_board[1]],
+            dtype=float,
+        )
+        scale_x = self.Nx / max(calibration.board_width, 1e-6)
+        scale_y = self.Ny / max(calibration.board_height, 1e-6)
+        return np.array(
+            [delta_board[0] * scale_x, -delta_board[1] * scale_y],
+            dtype=float,
+        )
 
     def _poll_tracker(self):
         if not self.tracker:
@@ -526,17 +590,68 @@ class QuantumMiniGolfGame:
         visible = state.visible and state.center_px is not None and state.direction_px is not None
         if visible:
             center = self._tracker_px_to_game(state.center_px)
-            dir_game = self._tracker_dir_to_game(state.direction_px)
+            dir_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
             norm = np.linalg.norm(dir_game)
             if norm < 1e-6:
                 visible = False
             else:
                 dir_unit = dir_game / norm
                 angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
-                length_game = (self.cfg.tracker_length_scale *
-                               self.tracker_cfg.putter_length_px / self.tracker_cfg.frame_width) * self.Nx
-                thickness_game = (self.cfg.tracker_thickness_scale *
-                                  self.tracker_cfg.putter_thickness_px / self.tracker_cfg.frame_height) * self.Ny
+                calibration = getattr(self.tracker_cfg, "calibration", None)
+                if calibration is None:
+                    length_game = (
+                        self.cfg.tracker_length_scale
+                        * self.tracker_cfg.putter_length_px
+                        / self.tracker_cfg.frame_width
+                        * self.Nx
+                    )
+                    thickness_game = (
+                        self.cfg.tracker_thickness_scale
+                        * self.tracker_cfg.putter_thickness_px
+                        / self.tracker_cfg.frame_height
+                        * self.Ny
+                    )
+                else:
+                    cam_center = np.array(state.center_px, dtype=float)
+                    cam_dir = np.array(state.direction_px, dtype=float)
+                    dir_norm = np.linalg.norm(cam_dir)
+                    if dir_norm < 1e-9:
+                        cam_dir[:] = (1.0, 0.0)
+                    else:
+                        cam_dir /= dir_norm
+                    cam_perp = np.array([-cam_dir[1], cam_dir[0]], dtype=float)
+                    half_len = 0.5 * self.tracker_cfg.putter_length_px
+                    half_thick = 0.5 * self.tracker_cfg.putter_thickness_px
+
+                    tip1_board = calibration.camera_to_board(
+                        (cam_center[0] + cam_dir[0] * half_len, cam_center[1] + cam_dir[1] * half_len)
+                    )
+                    tip2_board = calibration.camera_to_board(
+                        (cam_center[0] - cam_dir[0] * half_len, cam_center[1] - cam_dir[1] * half_len)
+                    )
+                    edge1_board = calibration.camera_to_board(
+                        (cam_center[0] + cam_perp[0] * half_thick, cam_center[1] + cam_perp[1] * half_thick)
+                    )
+                    edge2_board = calibration.camera_to_board(
+                        (cam_center[0] - cam_perp[0] * half_thick, cam_center[1] - cam_perp[1] * half_thick)
+                    )
+
+                    def board_to_game(pt_board: tuple[float, float]) -> np.ndarray:
+                        x_clamped = float(np.clip(pt_board[0], 0.0, calibration.board_width))
+                        y_clamped = float(np.clip(pt_board[1], 0.0, calibration.board_height))
+                        return np.array(
+                            [
+                                x_clamped * (self.Nx / max(calibration.board_width, 1e-6)),
+                                (calibration.board_height - y_clamped)
+                                * (self.Ny / max(calibration.board_height, 1e-6)),
+                            ],
+                            dtype=float,
+                        )
+
+                    length_game_raw = np.linalg.norm(board_to_game(tip1_board) - board_to_game(tip2_board))
+                    thickness_game_raw = np.linalg.norm(board_to_game(edge1_board) - board_to_game(edge2_board))
+                    length_game = float(length_game_raw * self.cfg.tracker_length_scale)
+                    thickness_game = float(thickness_game_raw * self.cfg.tracker_thickness_scale)
                 self.viz.update_putter_overlay(
                     center, length_game, thickness_game, angle_deg, True)
         if not visible:
@@ -548,7 +663,7 @@ class QuantumMiniGolfGame:
     def _handle_tracker_hit(self, hit):
         if self.shot_in_progress or self.game_over:
             return
-        dir_game = self._tracker_dir_to_game(hit.direction_px)
+        dir_game = self._tracker_dir_to_game(hit.center_px, hit.direction_px)
         norm = np.linalg.norm(dir_game)
         if norm < 1e-6:
             return

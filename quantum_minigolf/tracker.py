@@ -8,6 +8,8 @@ from collections import deque
 
 import numpy as np
 
+from .calibration import CalibrationData
+
 try:
     import cv2  # type: ignore
 except Exception as exc:  # pragma: no cover
@@ -59,6 +61,7 @@ class TrackerConfig:
     show_debug_window: bool = True
     debug_window_name: str = "Tracker Debug"
     sweep_margin_factor: float = 0.5
+    calibration: Optional[CalibrationData] = None
 
 
 @dataclass
@@ -229,7 +232,21 @@ class TrackerManager:
         self._hit_lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
-        self._reference_px = np.array([self.cfg.frame_width / 2, self.cfg.frame_height / 2], dtype=np.float32)
+        self._calibration = self.cfg.calibration
+        if self._calibration is not None:
+            self.cfg.frame_width = self._calibration.frame_width
+            self.cfg.frame_height = self._calibration.frame_height
+            center_board = (
+                self._calibration.board_width * 0.5,
+                self._calibration.board_height * 0.5,
+            )
+            ref_cam = self._calibration.board_to_camera(center_board)
+            ref_x = float(np.clip(ref_cam[0], 0.0, max(1.0, self.cfg.frame_width - 1)))
+            ref_y = float(np.clip(ref_cam[1], 0.0, max(1.0, self.cfg.frame_height - 1)))
+            ref_xy = np.array([ref_x, ref_y], dtype=np.float32)
+        else:
+            ref_xy = np.array([self.cfg.frame_width / 2, self.cfg.frame_height / 2], dtype=np.float32)
+        self._reference_px = ref_xy
         self._last_reference_update = 0.0
         self._crop_rect = self._normalize_crop_rect()
 
@@ -253,8 +270,17 @@ class TrackerManager:
     def update_reference_point(self, game_xy: Tuple[float, float], game_extent: Tuple[int, int]):
         gx, gy = game_xy
         nx, ny = game_extent
-        x_px = float(np.clip(gx / max(nx, 1e-6) * self.cfg.frame_width, 0, self.cfg.frame_width))
-        y_px = float(np.clip((1.0 - gy / max(ny, 1e-6)) * self.cfg.frame_height, 0, self.cfg.frame_height))
+        if self._calibration is not None:
+            scale_x = self._calibration.board_width / max(nx, 1e-6)
+            scale_y = self._calibration.board_height / max(ny, 1e-6)
+            board_x = float(np.clip(gx * scale_x, 0.0, self._calibration.board_width))
+            board_y = float(np.clip((ny - gy) * scale_y, 0.0, self._calibration.board_height))
+            cam_x, cam_y = self._calibration.board_to_camera((board_x, board_y))
+            x_px = float(np.clip(cam_x, 0.0, max(1.0, self.cfg.frame_width - 1)))
+            y_px = float(np.clip(cam_y, 0.0, max(1.0, self.cfg.frame_height - 1)))
+        else:
+            x_px = float(np.clip(gx / max(nx, 1e-6) * self.cfg.frame_width, 0, self.cfg.frame_width))
+            y_px = float(np.clip((1.0 - gy / max(ny, 1e-6)) * self.cfg.frame_height, 0, self.cfg.frame_height))
         self._reference_px = np.array([x_px, y_px], dtype=np.float32)
         self._last_reference_update = time.perf_counter()
 

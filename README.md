@@ -83,6 +83,16 @@ Mouse dragging inside the course aims the shot indicator; releasing triggers the
   cfg.tracker_crop_y2 = 540  # bottom (exclusive)
   ```
   The tracker thread crops frames before thresholding, reducing CPU cost while keeping LED coordinates in full-frame space. A dashed rectangle in the debug window visualizes the active ROI.
+- To align a skewed camera/projector setup, run the manual helper and click the four corners in order:
+  ```bash
+  python calibrate_course_boundaries.py
+  ```
+  The tool saves both JSON and pickle outputs (`calibration/course_calibration.json/.pkl`). The game automatically reuses the pickle from the previous run, so you only need to recalibrate after moving the camera or course. You can still override the path explicitly via `GameConfig.tracker_calibration_path`.
+- Prefer to auto-detect four LEDs? Use the dedicated script:
+  ```bash
+  python calibrate_course_boundaries_LED.py --output calibration/course_calibration.json
+  ```
+  It threshold-detects the illuminated markers, previews the warp, and writes the same calibration files for the main game.
 - The tracker expects a dual-LED putter; adjust thresholds, association radius, and impact detection in `cfg_tracker.py` as needed.
 
 ---

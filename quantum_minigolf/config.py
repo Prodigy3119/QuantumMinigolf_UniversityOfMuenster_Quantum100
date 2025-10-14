@@ -116,6 +116,7 @@ class GameConfig:
     tracker_crop_x2: Optional[int] = None
     tracker_crop_y1: Optional[int] = None
     tracker_crop_y2: Optional[int] = None
+    tracker_calibration_path: Optional[str] = None
     show_control_panel: bool = True
 
     # Time limit per shot (simulation seconds); None = no limit
