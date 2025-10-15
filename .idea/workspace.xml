@@ -4,10 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="added flags">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Screenshot.png" beforeDir="false" afterPath="$PROJECT_DIR$/Screenshot.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -35,23 +33,28 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.SystemCheck.executor": "Run",
-    "Python.__init__.executor": "Run",
-    "Python.app_tracker.executor": "Run",
-    "Python.backends.executor": "Run",
-    "Python.cfg_tracker.executor": "Run",
-    "Python.run_game.executor": "Run",
-    "RunOnceActivity.OpenProjectViewOnStart": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "C:/Users/jhlar/OneDrive/Studium/WWU/Physik/AGW/00 Quantum Minigolf/PythonApproach/00 Quantum Minigolf",
-    "to.speed.mode.migration.done": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.SystemCheck.executor&quot;: &quot;Run&quot;,
+    &quot;Python.__init__.executor&quot;: &quot;Run&quot;,
+    &quot;Python.app_tracker.executor&quot;: &quot;Run&quot;,
+    &quot;Python.backends.executor&quot;: &quot;Run&quot;,
+    &quot;Python.cfg_tracker.executor&quot;: &quot;Run&quot;,
+    &quot;Python.run_game.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/jhlar/OneDrive/Studium/WWU/Physik/AGW/00 Quantum Minigolf/PythonApproach/00 Quantum Minigolf&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;
   }
-}]]></component>
-  <component name="RunManager" selected="Python.GUI">
+}</component>
+  <component name="Push.Settings">
+    <force-push-targets>
+      <force-push-target remote-path="origin" branch="main" />
+    </force-push-targets>
+  </component>
+  <component name="RunManager">
     <configuration name="GUI" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="00 Quantum Minigolf" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -117,6 +120,14 @@
       <option name="presentableId" value="Default" />
       <updated>1759778269896</updated>
     </task>
+    <task id="LOCAL-00001" summary="added flags">
+      <created>1760549094070</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1760549094070</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -129,5 +140,9 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="added flags" />
+    <option name="LAST_COMMIT_MESSAGE" value="added flags" />
   </component>
 </project>

@@ -97,12 +97,17 @@ class QuantumMiniGolfGame:
                     crop_x2=getattr(self.cfg, 'tracker_crop_x2', None),
                     crop_y1=getattr(self.cfg, 'tracker_crop_y1', None),
                     crop_y2=getattr(self.cfg, 'tracker_crop_y2', None),
+                    threshold=int(getattr(self.cfg, 'tracker_threshold', 60)),
                 )
                 if calibration is not None:
                     tracker_kwargs["frame_width"] = calibration.frame_width
                     tracker_kwargs["frame_height"] = calibration.frame_height
                     tracker_kwargs["calibration"] = calibration
                 self.tracker_cfg = TrackerConfig(**tracker_kwargs)
+                try:
+                    self.cfg.tracker_threshold = int(self.tracker_cfg.threshold)
+                except Exception:
+                    pass
                 self.tracker = TrackerManager(self.tracker_cfg)
                 self.tracker.start()
             except Exception as exc:
@@ -589,73 +594,39 @@ class QuantumMiniGolfGame:
             return
         state = self.tracker.get_state()
         self._update_tracker_reference()
-        visible = state.visible and state.center_px is not None and state.direction_px is not None
+        span_px = float(state.span_px or 0.0)
+        min_span = float(getattr(self.cfg, 'tracker_min_span_px', 0.0))
+        visible = (
+            state.visible
+            and state.center_px is not None
+            and state.direction_px is not None
+            and span_px >= max(min_span, 1e-6)
+        )
         if visible:
-            center = self._tracker_px_to_game(state.center_px)
-            dir_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
-            norm = np.linalg.norm(dir_game)
-            if norm < 1e-6:
+            dir_step_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
+            step_norm = np.linalg.norm(dir_step_game)
+            if step_norm < 1e-6:
                 visible = False
             else:
-                dir_unit = dir_game / norm
+                dir_unit = dir_step_game / step_norm
                 angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
-                calibration = getattr(self.tracker_cfg, "calibration", None)
-                if calibration is None:
-                    length_game = (
-                        self.cfg.tracker_length_scale
-                        * self.tracker_cfg.putter_length_px
-                        / self.tracker_cfg.frame_width
-                        * self.Nx
-                    )
-                    thickness_game = (
-                        self.cfg.tracker_thickness_scale
-                        * self.tracker_cfg.putter_thickness_px
-                        / self.tracker_cfg.frame_height
-                        * self.Ny
-                    )
-                else:
-                    cam_center = np.array(state.center_px, dtype=float)
-                    cam_dir = np.array(state.direction_px, dtype=float)
-                    dir_norm = np.linalg.norm(cam_dir)
-                    if dir_norm < 1e-9:
-                        cam_dir[:] = (1.0, 0.0)
-                    else:
-                        cam_dir /= dir_norm
-                    cam_perp = np.array([-cam_dir[1], cam_dir[0]], dtype=float)
-                    half_len = 0.5 * self.tracker_cfg.putter_length_px
-                    half_thick = 0.5 * self.tracker_cfg.putter_thickness_px
-
-                    tip1_board = calibration.camera_to_board(
-                        (cam_center[0] + cam_dir[0] * half_len, cam_center[1] + cam_dir[1] * half_len)
-                    )
-                    tip2_board = calibration.camera_to_board(
-                        (cam_center[0] - cam_dir[0] * half_len, cam_center[1] - cam_dir[1] * half_len)
-                    )
-                    edge1_board = calibration.camera_to_board(
-                        (cam_center[0] + cam_perp[0] * half_thick, cam_center[1] + cam_perp[1] * half_thick)
-                    )
-                    edge2_board = calibration.camera_to_board(
-                        (cam_center[0] - cam_perp[0] * half_thick, cam_center[1] - cam_perp[1] * half_thick)
-                    )
-
-                    def board_to_game(pt_board: tuple[float, float]) -> np.ndarray:
-                        x_clamped = float(np.clip(pt_board[0], 0.0, calibration.board_width))
-                        y_clamped = float(np.clip(pt_board[1], 0.0, calibration.board_height))
-                        return np.array(
-                            [
-                                x_clamped * (self.Nx / max(calibration.board_width, 1e-6)),
-                                (calibration.board_height - y_clamped)
-                                * (self.Ny / max(calibration.board_height, 1e-6)),
-                            ],
-                            dtype=float,
-                        )
-
-                    length_game_raw = np.linalg.norm(board_to_game(tip1_board) - board_to_game(tip2_board))
-                    thickness_game_raw = np.linalg.norm(board_to_game(edge1_board) - board_to_game(edge2_board))
-                    length_game = float(length_game_raw * self.cfg.tracker_length_scale)
-                    thickness_game = float(thickness_game_raw * self.cfg.tracker_thickness_scale)
-                self.viz.update_putter_overlay(
-                    center, length_game, thickness_game, angle_deg, True)
+                center = self._tracker_px_to_game(state.center_px)
+                length_scale = float(getattr(self.cfg, 'tracker_length_scale', 1.0))
+                length_game = float(span_px * step_norm * length_scale)
+                if length_game <= 0.0:
+                    length_game = float(span_px * step_norm)
+                overlay_thickness_px = max(1.0, float(getattr(self.cfg, 'tracker_overlay_thickness_px', 4.0)))
+                perp_cam = (-state.direction_px[1], state.direction_px[0])
+                perp_step_game = self._tracker_dir_to_game(state.center_px, perp_cam)
+                perp_norm = np.linalg.norm(perp_step_game)
+                if perp_norm < 1e-6:
+                    perp_norm = step_norm
+                thickness_scale = float(getattr(self.cfg, 'tracker_thickness_scale', 1.0))
+                thickness_game = float(perp_norm * overlay_thickness_px * thickness_scale)
+                min_thickness = float(perp_norm * max(1.5, overlay_thickness_px * 0.25))
+                if thickness_game < min_thickness:
+                    thickness_game = min_thickness
+                self.viz.update_putter_overlay(center, length_game, thickness_game, angle_deg, True)
         if not visible:
             self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
         hits = self.tracker.pop_hits()
@@ -1330,9 +1301,9 @@ class QuantumMiniGolfGame:
 
         slider_left = 0.18
         slider_width = 0.64
-        slider_height = 0.045
-        slider_gap = 0.06
-        slider_y = 0.46
+        slider_height = 0.042
+        slider_gap = 0.055
+        slider_y = 0.53
 
         slider_specs = [
             ('lin',  'Friction Lin',   0.0, 0.9,  float(self.cfg.shot_friction_linear),     0.01, '#1f77ff', self._on_friction_slider_change),
@@ -1343,6 +1314,8 @@ class QuantumMiniGolfGame:
             ('move', 'Move Speed',     0.5, 15.0, float(self.cfg.movement_speed_scale),    0.05, '#9467bd', self._on_movement_speed_change),
             ('time', 'Shot Time',      0.0,500.0,float(self.cfg.shot_time_limit or 0.0),    10.0, '#8c564b', self._on_shot_time_limit_change),
             ('wall', 'Wall Thickness', 0.05,5.0,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
+            ('tracker_thresh', 'Tracker Threshold', 5.0, 250.0, float(getattr(self.cfg, 'tracker_threshold', 60)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
+            ('tracker_speed',  'Tracker Speed',     0.001, 0.04, float(self.cfg.tracker_speed_scale), 0.0005, '#e377c2', self._on_tracker_speed_scale_change),
         ]
 
         for name, label, vmin, vmax, val, step, color, callback in slider_specs:
@@ -1434,6 +1407,8 @@ class QuantumMiniGolfGame:
             'move': float(self.cfg.movement_speed_scale),
             'time': float(self.cfg.shot_time_limit or 0.0),
             'wall': float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)),
+            'tracker_thresh': float(getattr(self.cfg, 'tracker_threshold', 60)),
+            'tracker_speed': float(self.cfg.tracker_speed_scale),
         }
         self._panel_updating = True
         try:
@@ -1474,6 +1449,10 @@ class QuantumMiniGolfGame:
                 sliders['time'].valtext.set_text(f"{self.cfg.shot_time_limit:.0f}")
         if 'wall' in sliders:
             sliders['wall'].valtext.set_text(f"{getattr(self.cfg, 'single_wall_thickness_factor', 1.0):.2f}")
+        if 'tracker_thresh' in sliders:
+            sliders['tracker_thresh'].valtext.set_text(f"{int(round(getattr(self.cfg, 'tracker_threshold', 60)))}")
+        if 'tracker_speed' in sliders:
+            sliders['tracker_speed'].valtext.set_text(f"{self.cfg.tracker_speed_scale:.4f}")
         if 'cubic_text' in self._panel_elements:
             cubic = max(0.0, 1.0 - self.cfg.shot_friction_linear - self.cfg.shot_friction_quadratic)
             self._panel_elements['cubic_text'].set_text(f"Friction Cubic: {cubic:.3f}")
@@ -1570,7 +1549,25 @@ class QuantumMiniGolfGame:
                 self.viz.draw_frame(np.zeros((self.Ny, self.Nx), dtype=np.float32), plot_wave=False)
         self._refresh_slider_texts(draw=False)
         self._panel_draw_idle()
-        self.viz.fig.canvas.draw_idle()
+
+    def _on_tracker_threshold_change(self, val):
+        if getattr(self, '_panel_updating', False):
+            return
+        thresh = int(round(float(val)))
+        thresh = max(5, min(254, thresh))
+        self.cfg.tracker_threshold = thresh
+        if self.tracker_cfg is not None:
+            self.tracker_cfg.threshold = thresh
+        self._refresh_slider_texts(draw=False)
+        self._panel_draw_idle()
+
+    def _on_tracker_speed_scale_change(self, val):
+        if getattr(self, '_panel_updating', False):
+            return
+        speed = float(np.clip(val, 0.001, 0.1))
+        self.cfg.tracker_speed_scale = speed
+        self._refresh_slider_texts(draw=False)
+        self._panel_draw_idle()
 
     def _reset(self, ball_only=False):
         start_x = int(

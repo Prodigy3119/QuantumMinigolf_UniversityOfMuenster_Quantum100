@@ -109,8 +109,11 @@ class GameConfig:
     # Tracker integration
     use_tracker: bool = True
     tracker_speed_scale: float = 0.012
+    tracker_threshold: int = 60
     tracker_length_scale: float = 1.0
     tracker_thickness_scale: float = 1.0
+    tracker_min_span_px: float = 10.0
+    tracker_overlay_thickness_px: float = 4.0
     tracker_debug_window: bool = True
     tracker_crop_x1: Optional[int] = None  # Optional camera ROI (pixels); None keeps full width
     tracker_crop_x2: Optional[int] = None
