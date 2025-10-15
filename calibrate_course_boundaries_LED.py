@@ -136,21 +136,23 @@ def _connected_component_centroids(
 
 
 def _detect_led_points(gray: np.ndarray, *, top_k: int = 4) -> List[Point]:
-    blurred = cv2.GaussianBlur(gray, (7, 7), 0)
+    normalized = cv2.normalize(gray, None, 0, 255, cv2.NORM_MINMAX)
+    blurred = cv2.GaussianBlur(normalized, (3, 3), 0)
     h, w = blurred.shape[:2]
     frame_area = float(h * w)
-    min_area = max(5.0, frame_area * 1e-5)
-    max_area = frame_area * 0.01
+    min_area = 1.0
+    max_area = max(frame_area * 0.05, 16.0)
 
-    percentiles = (99.6, 99.3, 99.0, 98.5)
+    percentiles = (99.9, 99.7, 99.4, 99.0, 98.5, 98.0, 97.0, 96.0)
+    kernel = np.ones((3, 3), np.uint8)
     best: List[Point] = []
     for p in percentiles:
         thresh_val = float(np.percentile(blurred, p))
-        if thresh_val < 10:
+        if thresh_val <= 2.0:
             continue
-        _, mask = cv2.threshold(blurred, thresh_val, 255, cv2.THRESH_BINARY)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
-        mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+        cutoff = max(2.0, thresh_val * 0.9)
+        _, mask = cv2.threshold(blurred, cutoff, 255, cv2.THRESH_BINARY)
+        mask = cv2.dilate(mask, kernel, iterations=2)
         pts = _connected_component_centroids(
             mask,
             blurred,
@@ -162,6 +164,21 @@ def _detect_led_points(gray: np.ndarray, *, top_k: int = 4) -> List[Point]:
             return pts[:top_k]
         if len(pts) > len(best):
             best = pts
+
+    if len(best) < top_k:
+        flat = blurred.reshape(-1)
+        idx = np.argpartition(flat, -top_k)[-top_k:]
+        coords = [(float(i % w), float(i // w)) for i in idx]
+        coords.sort(key=lambda pt: -blurred[int(pt[1]), int(pt[0])])
+        seen = {(round(px, 1), round(py, 1)) for px, py in best}
+        for pt in coords:
+            key = (round(pt[0], 1), round(pt[1], 1))
+            if key in seen:
+                continue
+            best.append(pt)
+            seen.add(key)
+            if len(best) >= top_k:
+                break
     return best[:top_k]
 
 

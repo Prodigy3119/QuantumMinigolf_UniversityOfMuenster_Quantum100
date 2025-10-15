@@ -48,8 +48,8 @@ class TrackerConfig:
     crop_y1: Optional[int] = None
     crop_y2: Optional[int] = None
     target_fps: int = 60
-    threshold: int = 200
-    min_area: int = 5
+    threshold: int = 60
+    min_area: int = 1
     assoc_max_px: float = 120.0
     putter_length_px: float = 380.0
     putter_thickness_px: float = 90.0
@@ -395,16 +395,22 @@ class TrackerManager:
                     offset_xy = (float(x1), float(y1))
                     proc_rect = (x1, x2, y1, y2)
                 gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-                _, mask = cv2.threshold(gray, cfg.threshold, 255, cv2.THRESH_BINARY)
-                blur_kernel = 5
+                thresh_val = max(5, min(254, int(cfg.threshold)))
+                _, mask = cv2.threshold(gray, thresh_val, 255, cv2.THRESH_BINARY)
+                if cv2.countNonZero(mask) == 0:
+                    mask = cv2.adaptiveThreshold(
+                        gray,
+                        255,
+                        cv2.ADAPTIVE_THRESH_MEAN_C,
+                        cv2.THRESH_BINARY,
+                        11,
+                        -2,
+                    )
                 min_dim = min(roi.shape[0], roi.shape[1])
-                if min_dim < 5:
-                    if min_dim >= 3:
-                        blur_kernel = 3
-                    else:
-                        blur_kernel = None
+                blur_kernel = 3 if min_dim >= 3 else None
                 if blur_kernel is not None:
                     mask = cv2.medianBlur(mask, blur_kernel)
+                mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
 
                 cnts = safe_find_contours(mask)
                 blobs = find_top_two_blobs(cnts, cfg.min_area)
