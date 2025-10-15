@@ -45,7 +45,58 @@ pip install cupy-cuda12x pyfftw  # optional accelerators
    ```
 3. **Interact** with the figure window – drag the shot indicator with the mouse, press hotkeys to change modes, and watch the ball and wave evolve.
 
-Use `python run_game.py --help` for available command-line overrides, including map selection, playback mode, movement speed, and course presets.
+Refer to the command-line flags listed below to tailor launch mode, tracker behaviour, automation helpers, and diagnostics straight from the CLI.
+
+## Command-Line Flags
+Flags are grouped by theme; defaults are shown in parentheses.
+
+### Core Launch
+- `--map <double_slit|single_slit|single_wall|no_obstacle>` (default `double_slit`): choose the opening course layout.
+- `--mode <classical|quantum|mixed>` (default `mixed`): set the initial visualisation mode.
+- `--course <quantum_demo|advanced_showcase>` (default none): jump directly into a guided multi-stage course.
+- `--wave-profile <packet|front>` (default `front`): pick the initial wave packet shape.
+- `--stop-mode <time|friction>` (default `time`): decide how shots terminate.
+- `--wall-thickness <float>` (default `1.0`): scale the central barrier thickness.
+- `--movement-speed <float>` (default `1.0`): multiply ball and wave travel speed.
+- `--shot-time <float>` (default `50.0`, `<=0` means infinite): cap simulation time per shot.
+- `--res-scale <float>` (default `1.0`): render at a higher or lower resolution.
+- `--draw-every <int>` (default `3`): draw every Nth simulation frame.
+- `--target-fps <float>` (default `30`): set the desired redraw cadence.
+- `--mouse-swing` (default enabled): ensure mouse swings stay active even if tracker hardware is connected.
+- `--config-panel` / `--no-control-panel` (default show): force the separate control panel to open or remain hidden.
+
+### Tracker & Calibration
+- `--vr` / `--no-vr` (default hybrid: mouse swing enabled, tracker armed): toggle between tracker-driven swings and mouse-only play.
+- `--display-tracker` / `--no-display-tracker` (default show): show or hide the OpenCV tracker debug window.
+- `--calibration-path <file>` (default auto-discovery): point to an explicit calibration file.
+- `--skip-calibration-preview` (default show preview): suppress the OpenCV snapshot after loading calibration data.
+- `--calibrate-course`: launch the manual corner picker before the game starts.
+- `--calibrate-course-led`: run the LED auto-calibration helper before launching.
+
+### Gameplay & Physics
+- `--sink-threshold <float>` (default `0.25`): adjust the probability threshold for hole detection.
+- `--max-steps-per-shot <int>` (default `2048`): hard-limit simulation steps per attempt.
+- `--quantum-measure` / `--no-quantum-measure` (default enabled): control automatic quantum measurements.
+- `--measurement-gamma <float>` (default `1.0`): tune the measurement sampling sharpness.
+- `--sink-rule <prob_threshold|measurement>` (default `prob_threshold`): pick the sink resolution rule.
+- `--edge-boundary <reflect|absorb>` (default `reflect`): decide how the arena boundary behaves.
+- `--boost-hole` / `--no-boost-hole` (default enabled): toggle probability boosting toward the hole.
+- `--boost-factor <float>` (default `0.10`): set the baseline boost factor when boosting is enabled.
+- `--boost-increment <float>` (default `0.08`): increment applied after each measurement when boosting is active.
+
+### Performance & Rendering
+- `--perf-profile <quality|balanced|fast>` (default `quality`): apply a preset bundle of performance flags.
+- `--blit` / `--no-blit` (default off): force matplotlib blitting on or off.
+- `--gpu-viz` / `--no-gpu-viz` (default off): control GPU-backed visualisation if a CUDA device is present.
+
+### Recording & Automation
+- `--record-video [PATH]` (default disabled): render the scripted double-slit demo instead of launching the UI. Provide a path to override the destination.
+- `--record-output <PATH>` (default `QuantumMinigolfDemo.mp4`): specify the output file when recording (takes precedence over `--record-video`).
+- `--headless` (default off): run with the Agg backend and skip the Qt window.
+
+### Diagnostics & Backend
+- `--dump-config` (default off): print the resolved `GameConfig` object before launching.
+- `--backend <auto|cpu|gpu>` (default `auto`): override FFT backend selection (`QUANTUM_MINIGOLF_BACKEND`). 
 
 ---
 
@@ -103,6 +154,7 @@ Use `RecordVideo.py` to export a showcase shot without opening GUI windows:
 python RecordVideo.py
 ```
 The script prepares a mixed-mode double-slit shot, captures frames with Matplotlib’s Agg backend, and writes `DoubleSlitDemo.mp4` (FFmpeg must be installed and on PATH).
+Run `python run_game.py --record-video` (optionally with `--record-output PATH`) to invoke the same capture pipeline before exiting the launcher.
 
 ---
 

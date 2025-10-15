@@ -76,34 +76,48 @@ class Backend:
             print("GPU selection failed because:", self._gpu_fail_reason)
 
     def _select_backend(self):
+        mode = os.environ.get("QUANTUM_MINIGOLF_BACKEND", "").strip().lower()
+        if mode and mode not in {"auto", "cpu", "gpu"}:
+            print(f"[warn] Unknown QUANTUM_MINIGOLF_BACKEND value '{mode}', falling back to auto selection.")
+            mode = "auto"
+        allow_gpu = mode != "cpu"
+        force_gpu = mode == "gpu"
+        if mode == "cpu":
+            self._gpu_fail_reason = "forced to CPU via QUANTUM_MINIGOLF_BACKEND"
+
         # 1) Try CuPy (must pass alloc + cuFFT + NVRTC/JIT)
-        try:
-            import cupy as cp  # type: ignore
+        if allow_gpu:
+            try:
+                import cupy as cp  # type: ignore
 
-            # Allocation sanity
-            _ = cp.zeros((1,), dtype=cp.float32)
+                # Allocation sanity
+                _ = cp.zeros((1,), dtype=cp.float32)
 
-            # cuFFT sanity
-            _ = cp.fft.fft2(cp.zeros((8, 8), dtype=cp.float32))
+                # cuFFT sanity
+                _ = cp.fft.fft2(cp.zeros((8, 8), dtype=cp.float32))
 
-            # NVRTC/JIT sanity (forces nvrtc + builtins usage)
-            cp.ElementwiseKernel(
-                'float32 x', 'float32 y', 'y = x', name='__jit_probe__'
-            )(cp.array([0.0], dtype=cp.float32))
+                # NVRTC/JIT sanity (forces nvrtc + builtins usage)
+                cp.ElementwiseKernel(
+                    'float32 x', 'float32 y', 'y = x', name='__jit_probe__'
+                )(cp.array([0.0], dtype=cp.float32))
 
-            # Success -> select GPU
-            self.USE_GPU = True
-            self.backend_name = "CuPy (GPU)"
-            self.xp = cp
-            self.cp = cp
-            self.fft2 = cp.fft.fft2
-            self.ifft2 = cp.fft.ifft2
-            return
-        except Exception as e:
-            self._gpu_fail_reason = repr(e)
-            self.USE_GPU = False
-            self.backend_name = "CPU"
-            self.cp = None
+                # Success -> select GPU
+                self.USE_GPU = True
+                self.backend_name = "CuPy (GPU)"
+                self.xp = cp
+                self.cp = cp
+                self.fft2 = cp.fft.fft2
+                self.ifft2 = cp.fft.ifft2
+                return
+            except Exception as e:
+                self._gpu_fail_reason = repr(e)
+                self.USE_GPU = False
+                self.backend_name = "CPU"
+                self.cp = None
+                if force_gpu:
+                    raise RuntimeError(
+                        "GPU backend forced via QUANTUM_MINIGOLF_BACKEND but initialisation failed."
+                    ) from e
 
         # 2) PyFFTW (CPU, fast)
         try:

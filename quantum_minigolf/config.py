@@ -84,7 +84,7 @@ class GameConfig:
     measurement_sink_min_prob: float = 1e-3
 
     # Bias (toward hole)
-    boost_hole_probability: bool = False
+    boost_hole_probability: bool = True
     boost_hole_probability_factor: float = 0.0
     boost_hole_probability_increment: float = 0.03
     boost_hole_probability_autoincrement_on_measure: bool = True
