@@ -68,26 +68,28 @@ class QuantumMiniGolfGame:
         self.tracker_cfg = None
         self._tracker_timer = None
         if getattr(self.cfg, 'use_tracker', False):
-            calibration = None
-            calib_path_raw = getattr(self.cfg, 'tracker_calibration_path', None)
-            candidate_paths: list[Path] = []
-            if calib_path_raw:
-                candidate_paths.append(Path(calib_path_raw))
-            else:
-                candidate_paths.extend(
-                    [
-                        Path("calibration") / "course_calibration.pkl",
-                        Path("calibration") / "course_calibration.json",
-                    ]
-                )
-            for candidate in candidate_paths:
-                try:
-                    if candidate.exists():
-                        calibration = CalibrationData.load(candidate)
-                        print(f"Tracker calibration loaded from {candidate}")
-                        break
-                except Exception as exc:
-                    print(f"Tracker calibration load failed ({candidate}): {exc}")
+            preloaded_calibration = getattr(self.cfg, 'tracker_calibration_data', None)
+            calibration = preloaded_calibration if isinstance(preloaded_calibration, CalibrationData) else None
+            if calibration is None:
+                calib_path_raw = getattr(self.cfg, 'tracker_calibration_path', None)
+                candidate_paths: list[Path] = []
+                if calib_path_raw:
+                    candidate_paths.append(Path(calib_path_raw))
+                else:
+                    candidate_paths.extend(
+                        [
+                            Path("calibration") / "course_calibration.pkl",
+                            Path("calibration") / "course_calibration.json",
+                        ]
+                    )
+                for candidate in candidate_paths:
+                    try:
+                        if candidate.exists():
+                            calibration = CalibrationData.load(candidate)
+                            print(f"Tracker calibration loaded from {candidate}")
+                            break
+                    except Exception as exc:
+                        print(f"Tracker calibration load failed ({candidate}): {exc}")
             try:
                 tracker_kwargs = dict(
                     show_debug_window=self.cfg.tracker_debug_window,

@@ -13,7 +13,7 @@ except Exception as exc:  # pragma: no cover
     print(f"[error] OpenCV is required for calibration: {exc}", file=sys.stderr)
     raise
 
-from quantum_minigolf.calibration import CalibrationData, order_points_clockwise
+from quantum_minigolf.calibration import CalibrationData, ensure_course_preview, order_points_clockwise
 
 Point = Tuple[float, float]
 
@@ -221,6 +221,8 @@ def _draw_ordered_overlay(image: np.ndarray, points: Sequence[Point]) -> np.ndar
 
 def main() -> int:
     args = _parse_args()
+
+    ensure_course_preview()
 
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():

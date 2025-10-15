@@ -22,6 +22,94 @@ else:
 Point = Tuple[float, float]
 PointArray = np.ndarray  # shape (N, 2)
 
+_COURSE_PREVIEW = None
+
+
+def ensure_course_preview(map_kind: str = "double_slit") -> None:
+    """
+    Launch a lightweight course preview window so calibration can be performed with
+    the current board layout in view. Intended for manual calibration scripts.
+    """
+    global _COURSE_PREVIEW
+    if _COURSE_PREVIEW is not None:
+        return
+    try:
+        import matplotlib  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        print(f"[warn] Course preview unavailable (matplotlib import failed: {exc})")
+        return
+
+    # Prefer the QtAgg backend so the preview matches the main game.
+    backend = ""
+    try:
+        backend = str(matplotlib.get_backend()).lower()
+    except Exception:
+        backend = ""
+    if backend != "qtagg":
+        try:  # pragma: no branch - best effort
+            matplotlib.use("QtAgg")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    try:
+        import matplotlib.pyplot as plt  # type: ignore
+    except Exception as exc:  # pragma: no cover
+        print(f"[warn] Course preview unavailable (pyplot import failed: {exc})")
+        return
+
+    try:
+        # Deferred import avoids circular references while quantum_minigolf.game loads.
+        from . import GameConfig, PerformanceFlags, QuantumMiniGolfGame
+    except Exception as exc:  # pragma: no cover
+        print(f"[warn] Course preview unavailable (game import failed: {exc})")
+        return
+
+    try:
+        flags = PerformanceFlags(
+            blitting=False,
+            display_downsample=False,
+            gpu_viz=False,
+            low_dpi=False,
+            inplace_step=False,
+            adaptive_draw=False,
+            path_decimation=False,
+            event_debounce=False,
+            fast_blur=False,
+            pixel_upscale=False,
+        )
+        cfg = GameConfig(flags=flags)
+        cfg.map_kind = map_kind
+        cfg.use_tracker = False
+        cfg.show_control_panel = False
+        cfg.enable_mouse_swing = False
+        cfg.PlotBall = False
+        cfg.PlotWavePackage = False
+        cfg.quantum_measure = False
+        cfg.shot_time_limit = None
+        preview = QuantumMiniGolfGame(cfg)
+        try:
+            manager = preview.viz.fig.canvas.manager  # type: ignore[attr-defined]
+        except Exception:
+            manager = None
+        if manager is not None:
+            try:
+                manager.set_window_title("Quantum Mini-Golf Course Preview")  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        preview.viz.fig.canvas.draw_idle()
+        try:
+            plt.show(block=False)
+            plt.pause(0.05)
+        except Exception:
+            pass
+        _COURSE_PREVIEW = preview
+    except Exception as exc:  # pragma: no cover
+        print(f"[warn] Course preview failed to launch: {exc}")
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+
 
 def _ensure_cv2():
     if cv2 is None:  # pragma: no cover - only hit on misconfigured environments

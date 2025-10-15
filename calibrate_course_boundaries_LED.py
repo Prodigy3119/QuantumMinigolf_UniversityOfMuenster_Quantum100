@@ -18,6 +18,7 @@ except Exception as exc:  # pragma: no cover
 from quantum_minigolf.calibration import (
     CalibrationData,
     compute_homography,
+    ensure_course_preview,
     order_points_clockwise,
 )
 
@@ -245,6 +246,8 @@ def _draw_points(image: np.ndarray, points: Sequence[Point]) -> np.ndarray:
 def main() -> int:
     args = _parse_args()
 
+    ensure_course_preview()
+
     cap = cv2.VideoCapture(args.camera)
     if not cap.isOpened():
         print(f"[error] Unable to open camera index {args.camera}", file=sys.stderr)
@@ -385,4 +388,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

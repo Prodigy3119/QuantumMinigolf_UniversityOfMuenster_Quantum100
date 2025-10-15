@@ -1,9 +1,138 @@
 
 import argparse
+from pathlib import Path
+from typing import Optional, Tuple
+
 import matplotlib
+
 matplotlib.use("QtAgg")
 import matplotlib.pyplot as plt
+import numpy as np
+
 from quantum_minigolf import QuantumMiniGolfGame, GameConfig, PerformanceFlags
+from quantum_minigolf.calibration import CalibrationData
+
+
+def _find_course_calibration(explicit: Optional[str] = None) -> Tuple[Optional[CalibrationData], Optional[Path]]:
+    """
+    Probe a few standard locations for the course calibration file.
+    """
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+
+    if explicit:
+        explicit_path = Path(explicit)
+        if not explicit_path.is_absolute():
+            explicit_path = Path.cwd() / explicit_path
+        candidates.append(explicit_path)
+
+    script_dir = Path(__file__).resolve().parent
+    search_roots = {
+        Path.cwd(),
+        script_dir,
+        Path.cwd() / "calibration",
+        script_dir / "calibration",
+    }
+    default_names = ("course_calibration.pkl", "course_calibration.json")
+    for root in search_roots:
+        for name in default_names:
+            candidates.append(root / name)
+
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except Exception:
+            resolved = path
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if not resolved.exists():
+            continue
+        try:
+            calibration = CalibrationData.load(resolved)
+        except Exception as exc:  # pragma: no cover - best effort logging
+            print(f"[warn] Failed to load course calibration from {resolved}: {exc}")
+            continue
+        return calibration, resolved
+    return None, None
+
+
+def _show_calibration_snapshot(
+    calibration: CalibrationData,
+    *,
+    camera_index: int = 0,
+    warmup_frames: int = 5,
+) -> bool:
+    """
+    Capture a snapshot from the tracker camera and display both the raw view with the
+    detected outline and the warped board preview.
+    """
+    try:
+        import cv2  # type: ignore
+    except Exception as exc:  # pragma: no cover - environment dependent
+        print(f"[warn] Skipping calibration snapshot (OpenCV unavailable: {exc})")
+        return False
+
+    cap = cv2.VideoCapture(camera_index, cv2.CAP_ANY)
+    if not cap.isOpened():
+        print(f"[warn] Could not open camera index {camera_index} for calibration snapshot.")
+        return False
+
+    try:
+        if calibration.frame_width:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(calibration.frame_width))
+        if calibration.frame_height:
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(calibration.frame_height))
+
+        frame = None
+        for _ in range(max(1, warmup_frames)):
+            ok, candidate = cap.read()
+            if not ok or candidate is None:
+                frame = None
+                break
+            frame = candidate
+        if frame is None:
+            print("[warn] Unable to capture frame for calibration snapshot.")
+            return False
+
+        overlay = frame.copy()
+        outline = calibration.outline_in_camera().astype(np.int32)
+        if outline.size >= 8:
+            pts = outline.reshape(-1, 1, 2)
+            cv2.polylines(overlay, [pts], True, (0, 255, 0), 2)
+            labels = ("TL", "TR", "BR", "BL")
+            for idx, (x, y) in enumerate(outline):
+                cv2.putText(
+                    overlay,
+                    labels[idx],
+                    (int(x) + 10, int(y) - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 255, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+
+        H = np.array(calibration.homography, dtype=np.float32).reshape(3, 3)
+        board_w = max(1, int(round(calibration.board_width)))
+        board_h = max(1, int(round(calibration.board_height)))
+        warped = cv2.warpPerspective(frame, H, (board_w, board_h))
+    finally:
+        cap.release()
+
+    overlay_rgb = cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB)
+    warped_rgb = cv2.cvtColor(warped, cv2.COLOR_BGR2RGB)
+
+    fig, axes = plt.subplots(1, 2, num="Calibration Snapshot", figsize=(12, 5))
+    axes[0].imshow(overlay_rgb)
+    axes[0].set_title("Camera View with Outline")
+    axes[0].axis("off")
+    axes[1].imshow(warped_rgb)
+    axes[1].set_title("Warped Course Preview")
+    axes[1].axis("off")
+    fig.tight_layout()
+    fig.canvas.draw_idle()
+    return True
 
 MAP_CHOICES = [
     'double_slit', 'single_slit', 'single_wall', 'no_obstacle'
@@ -110,6 +239,17 @@ def parse_args():
 def main():
     args = parse_args()
     cfg = build_config(args)
+    calibration, calibration_path = _find_course_calibration(getattr(cfg, "tracker_calibration_path", None))
+    if calibration is None or calibration_path is None:
+        print("[warn] No course calibration file found. Tracker will use uncalibrated coordinates.")
+    else:
+        cfg.tracker_calibration_path = str(calibration_path)
+        cfg.tracker_calibration_data = calibration
+        print(f"[info] Course calibration loaded from {calibration_path}")
+        if _show_calibration_snapshot(calibration):
+            print("[info] Displayed calibration snapshot; close the figure window if adjustments are needed.")
+        else:
+            print("[warn] Unable to display calibration snapshot.")
     game = QuantumMiniGolfGame(cfg)
     apply_runtime_overrides(game, args)
     plt.show()
