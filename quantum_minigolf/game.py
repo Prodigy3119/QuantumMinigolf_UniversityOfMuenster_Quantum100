@@ -167,7 +167,7 @@ class QuantumMiniGolfGame:
         self._gpu_rgba_buffer = None
 
         # movement-speed tuning (store baselines so slider changes keep swing tuning consistent)
-        self._movement_slider_bounds = (0.5, 15.0)
+        self._movement_slider_bounds = (0.5, 20.0)
         self._base_kmin_frac = float(getattr(cfg, 'kmin_frac', 0.15))
         self._base_kmax_frac = float(getattr(cfg, 'kmax_frac', 0.90))
         self._base_swing_power_scale = float(getattr(cfg, 'swing_power_scale', 0.05))
@@ -1068,7 +1068,15 @@ class QuantumMiniGolfGame:
         measurement_state = 'enabled' if self._mode_allows_measure() else 'disabled'
         info_state = 'on' if self.show_info else 'off'
         mouse_state = 'on' if getattr(self.cfg, 'enable_mouse_swing', False) else 'off'
-        panel_state = 'enabled' if getattr(self.cfg, 'show_control_panel', True) else 'disabled'
+        panel_state = 'open' if self._config_panel_active else 'closed'
+        interference_state = 'visible' if self.show_interference else 'hidden'
+        if self._playback_path:
+            try:
+                playback_state = Path(self._playback_path).name
+            except Exception:
+                playback_state = 'ready'
+        else:
+            playback_state = 'idle'
 
         entries = [
             ("q", "Quit the game", None),
@@ -1083,8 +1091,9 @@ class QuantumMiniGolfGame:
             ("w", "Toggle wave initial profile packet/front", getattr(self.cfg, 'wave_initial_profile', 'packet')),
             ("t", "Toggle shot stop mode time/friction", getattr(self.cfg, 'shot_stop_mode', 'time')),
             ("g", "Toggle mouse swing control", mouse_state),
-            ("u", "Toggle control panel window", 'open' if self._config_panel_active else 'closed'),
-            ("panel", "Control panel window (config.show_control_panel)", panel_state),
+            ("u", "Toggle control panel window", panel_state),
+            ("l", "Toggle interference profile view", interference_state),
+            ("d", "Play latest recording (if available)", playback_state),
             ("h", "Show this hotkey list", None),
         ]
         lines = []
@@ -1277,41 +1286,15 @@ class QuantumMiniGolfGame:
         self._panel_axes_list.append(bg_ax)
         bg_ax.text(0.5, 0.97, 'Control Panel', color='white', fontsize=12, fontweight='bold', ha='center', va='top', transform=bg_ax.transAxes)
 
-        text_ax = fig.add_axes([0.08, 0.70, 0.84, 0.22])
-        text_ax.axis('off')
-        hotkeys_text = [
-            'Hotkeys',
-            ' q  quit      r  reset',
-            ' tab maps     c  modes',
-            ' m  measure   i  info',
-            ' #  demo      -  showcase',
-            ' b  boundary  w  wave',
-            ' t  stop mode g  mouse',
-            ' u  panel     h  help',
-            ' esc close',
-        ]
-        y = 0.94
-        for line in hotkeys_text:
-            text_ax.text(0.0, y, line, color='#dddddd', fontsize=8.5, ha='left', va='top', transform=text_ax.transAxes)
-            y -= 0.135
-        self._panel_axes_list.append(text_ax)
-
-        stats_text = bg_ax.text(0.08, 0.56, '', color='#bbbbbb', fontsize=8.5, ha='left', va='top', transform=bg_ax.transAxes)
-        self._panel_elements['stats_text'] = stats_text
-
         slider_left = 0.18
         slider_width = 0.64
         slider_height = 0.042
         slider_gap = 0.055
-        slider_y = 0.53
+        slider_y = 0.82
 
         slider_specs = [
-            ('lin',  'Friction Lin',   0.0, 0.9,  float(self.cfg.shot_friction_linear),     0.01, '#1f77ff', self._on_friction_slider_change),
-            ('quad', 'Friction Quad',  0.0, 0.9,  float(self.cfg.shot_friction_quadratic),  0.01, '#1f77ff', self._on_friction_slider_change),
-            ('min',  'Friction Min',   0.0, 0.2,  float(self.cfg.shot_friction_min_scale),  0.005,'#ff7f0e', self._on_min_scale_change),
-            ('sink', 'Sink Prob',      0.05,0.5,  float(self.cfg.sink_prob_threshold),      0.01, '#2ca02c', self._on_sink_threshold_change),
             ('boost','Boost Increment',0.0, 0.3,  float(self.cfg.boost_hole_probability_increment),0.005,'#d62728', self._on_boost_increment_change),
-            ('move', 'Move Speed',     0.5, 15.0, float(self.cfg.movement_speed_scale),    0.05, '#9467bd', self._on_movement_speed_change),
+            ('move', 'Move Speed',     0.5, 20.0, float(self.cfg.movement_speed_scale),    0.05, '#9467bd', self._on_movement_speed_change),
             ('time', 'Shot Time',      0.0,500.0,float(self.cfg.shot_time_limit or 0.0),    10.0, '#8c564b', self._on_shot_time_limit_change),
             ('wall', 'Wall Thickness', 0.05,5.0,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
             ('tracker_thresh', 'Tracker Threshold', 5.0, 250.0, float(getattr(self.cfg, 'tracker_threshold', 60)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
@@ -1327,9 +1310,6 @@ class QuantumMiniGolfGame:
             self._panel_axes_list.append(ax)
             slider_y -= slider_gap
 
-        cubic = float(max(0.0, 1.0 - self.cfg.shot_friction_linear - self.cfg.shot_friction_quadratic))
-        cubic_text = bg_ax.text(0.08, 0.18, f'Friction Cubic: {cubic:.3f}', color='#aaaaaa', fontsize=8.5, ha='left', va='top', transform=bg_ax.transAxes)
-        self._panel_elements['cubic_text'] = cubic_text
         self._panel_elements['time_slider'] = self._panel_sliders['time']
 
         self._panel_updating = False
