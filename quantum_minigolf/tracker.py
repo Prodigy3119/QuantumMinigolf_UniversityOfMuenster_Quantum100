@@ -249,6 +249,7 @@ class TrackerManager:
         self._reference_px = ref_xy
         self._last_reference_update = 0.0
         self._crop_rect = self._normalize_crop_rect()
+        self._debug_warp_failure_logged = False
 
     def start(self):
         if self._thread and self._thread.is_alive():
@@ -303,6 +304,30 @@ class TrackerManager:
     def _register_hit(self, hit: TrackerHit):
         with self._hit_lock:
             self._hit_queue.append(hit)
+
+    def _render_debug_view(self, frame_bgr: np.ndarray) -> np.ndarray:
+        calibration = self._calibration
+        if calibration is None or cv2 is None:
+            return frame_bgr
+        try:
+            H = np.asarray(calibration.homography, dtype=np.float32).reshape(3, 3)
+            board_w = max(1, int(round(calibration.board_width)))
+            board_h = max(1, int(round(calibration.board_height)))
+            warped = cv2.warpPerspective(frame_bgr, H, (board_w, board_h))
+            max_dim = float(max(board_w, board_h))
+            if max_dim > 0.0:
+                target = 720.0
+                scale = min(3.0, max(1.0, target / max_dim))
+                if abs(scale - 1.0) > 1e-3:
+                    new_w = max(1, int(round(board_w * scale)))
+                    new_h = max(1, int(round(board_h * scale)))
+                    warped = cv2.resize(warped, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+            return warped
+        except Exception as exc:
+            if not self._debug_warp_failure_logged:
+                print(f"[warn] Tracker debug warp failed: {exc}")
+                self._debug_warp_failure_logged = True
+            return frame_bgr
 
     def _normalize_crop_rect(self) -> Optional[tuple[int, int, int, int]]:
         cfg = self.cfg
@@ -438,7 +463,8 @@ class TrackerManager:
                         x1, x2, y1, y2 = proc_rect
                         cv2.rectangle(debug_img, (x1, y1), (x2 - 1, y2 - 1), (0, 140, 255), 1)
                     cv2.circle(debug_img, (int(self._reference_px[0]), int(self._reference_px[1])), int(cfg.impact_radius_px), (255, 0, 255), 2)
-                    cv2.imshow(cfg.debug_window_name, debug_img)
+                    debug_view = self._render_debug_view(debug_img)
+                    cv2.imshow(cfg.debug_window_name, debug_view)
                     key = cv2.waitKey(1) & 0xFF
                     if key in (27, ord('q')):
                         self._stop.set()
