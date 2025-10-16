@@ -4,13 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Improved golf club tracker overlay with reduced offset between virtual and physical tracker">
-      <change beforePath="$PROJECT_DIR$/HowTo.md" beforeDir="false" afterPath="$PROJECT_DIR$/HowTo.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_game.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_game.py" afterDir="false" />
-    </list>
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -58,7 +52,7 @@
       <force-push-target remote-path="origin" branch="main" />
     </force-push-targets>
   </component>
-  <component name="RunManager" selected="Python.backends">
+  <component name="RunManager">
     <configuration name="GUI" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="00 Quantum Minigolf" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -187,7 +181,42 @@
       <option name="project" value="LOCAL" />
       <updated>1760630122433</updated>
     </task>
-    <option name="localTasksCounter" value="10" />
+    <task id="LOCAL-00010" summary="Added flag &quot;--multiple-shots&quot; to tune the game from a hole in one game to a &quot;normal&quot; golf game">
+      <created>1760638539711</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1760638539711</updated>
+    </task>
+    <task id="LOCAL-00011" summary="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag">
+      <created>1760639629715</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1760639629715</updated>
+    </task>
+    <task id="LOCAL-00012" summary="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag">
+      <created>1760640671242</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1760640671242</updated>
+    </task>
+    <task id="LOCAL-00013" summary="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag">
+      <created>1760641149965</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1760641149965</updated>
+    </task>
+    <task id="LOCAL-00014" summary="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag">
+      <created>1760642234530</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1760642234530</updated>
+    </task>
+    <option name="localTasksCounter" value="15" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -211,6 +240,8 @@
     <MESSAGE value="updating workspace" />
     <MESSAGE value="- Remove ghost artifacts&#10;- Remove last position of putter when &quot;o&quot; is pressed" />
     <MESSAGE value="- Improved golf club tracker overlay with reduced offset between virtual and physical tracker" />
-    <option name="LAST_COMMIT_MESSAGE" value="- Improved golf club tracker overlay with reduced offset between virtual and physical tracker" />
+    <MESSAGE value="Added flag &quot;--multiple-shots&quot; to tune the game from a hole in one game to a &quot;normal&quot; golf game" />
+    <MESSAGE value="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag" />
+    <option name="LAST_COMMIT_MESSAGE" value="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag" />
   </component>
 </project>

@@ -296,6 +296,12 @@ def build_config(args):
 
     if getattr(args, "multiple_shots", False):
         cfg.multiple_shots = True
+    if getattr(args, "log_data", False):
+        cfg.log_data = True
+    if getattr(args, "no_tracker_auto_scale", False):
+        cfg.tracker_auto_scale = False
+    if getattr(args, "tracker_max_span", None) is not None:
+        cfg.tracker_max_span_px = max(1.0, float(args.tracker_max_span))
 
     if args.vr is not None:
         if args.vr:
@@ -340,6 +346,9 @@ def parse_args():
     parser.add_argument('--boost-factor', type=float, help='Base probability boost applied when enabled')
     parser.add_argument('--mouse-swing', action='store_true', help='Enable mouse swing control')
     parser.add_argument('--multiple-shots', action='store_true', help='Allow consecutive shots and track attempts')
+    parser.add_argument('--log-data', action='store_true', help='Record VR debug telemetry to vr_debug_log.txt')
+    parser.add_argument('--no-tracker-auto-scale', action='store_true', help='Disable automatic tracker scaling correction')
+    parser.add_argument('--tracker-max-span', type=float, help='Maximum LED span in pixels before rejecting tracker frames')
     parser.add_argument('--config-panel', action='store_true', help='Force the control panel window to open on start')
     parser.add_argument('--no-control-panel', action='store_true', help='Disable the separate control panel window')
 

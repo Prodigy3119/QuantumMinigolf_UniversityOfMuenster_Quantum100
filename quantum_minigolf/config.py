@@ -53,6 +53,7 @@ class GameConfig:
     # Controls
     enable_mouse_swing: bool = True  # True enables mouse hits, False is standard for VR
     multiple_shots: bool = False  # Enable multi-shot gameplay (ball continues from last position)
+    log_data: bool = False  # Enable periodic VR debug logging when tracker is active
 
     # Tunneling / energy mapping
     kmin_frac: float = 0.15     # min fraction of k_max used for very slow swings
@@ -123,6 +124,9 @@ class GameConfig:
     tracker_crop_y2: Optional[int] = None
     tracker_calibration_path: Optional[str] = None
     show_control_panel: bool = True
+
+    tracker_auto_scale: bool = True
+    tracker_max_span_px: float = 220.0
 
     # Time limit per shot (simulation seconds); None = no limit
     shot_time_limit: float = 120

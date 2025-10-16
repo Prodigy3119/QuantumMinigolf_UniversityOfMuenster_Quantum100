@@ -151,6 +151,13 @@ class Visuals:
         self.putter_patch.set_visible(False)
         self.ax.add_patch(self.putter_patch)
         if animated: self.putter_patch.set_animated(True)
+        self._last_putter_state: dict[str, object] = {
+            "visible": False,
+            "center": None,
+            "length": 0.0,
+            "thickness": 0.0,
+            "angle_deg": 0.0,
+        }
 
         # labels
         self.mode_label = self.ax.text(
@@ -172,7 +179,7 @@ class Visuals:
         if animated: self.class_label.set_animated(True)
 
         self.shot_counter_label = self.ax.text(
-            Nx - 4, Ny - 4, "", color='gold', fontsize=12, fontweight='bold',
+            Nx - 4, Ny - 4, "", color='purple', fontsize=12, fontweight='bold',
             va='top', ha='right', path_effects=[pe.withStroke(linewidth=2.5, foreground='black')]
         )
         if animated: self.shot_counter_label.set_animated(True)
@@ -469,6 +476,18 @@ class Visuals:
         self._wave_label.set_visible(show)
 
     def update_putter_overlay(self, center, length, thickness, angle_deg, visible):
+        cx, cy = float(center[0]), float(center[1])
+        length_f = float(length)
+        thickness_f = float(thickness)
+        angle_f = float(angle_deg)
+        state_center = (cx, cy) if visible else None
+        self._last_putter_state = {
+            "visible": bool(visible),
+            "center": state_center,
+            "length": length_f,
+            "thickness": thickness_f,
+            "angle_deg": angle_f,
+        }
         if not visible:
             self.putter_patch.set_visible(False)
             if self.flags.blitting:
@@ -476,10 +495,9 @@ class Visuals:
             else:
                 self.fig.canvas.draw_idle()
             return
-        cx, cy = center
-        half_l = 0.5 * float(length)
-        half_t = 0.5 * float(thickness)
-        rad = math.radians(float(angle_deg))
+        half_l = 0.5 * length_f
+        half_t = 0.5 * thickness_f
+        rad = math.radians(angle_f)
         cos_a = math.cos(rad); sin_a = math.sin(rad)
         corners = np.array([[-half_l, -half_t], [half_l, -half_t], [half_l,  half_t], [-half_l,  half_t]])
         rot = np.array([[cos_a, -sin_a], [sin_a, cos_a]])
@@ -490,6 +508,9 @@ class Visuals:
             self._blit_draw()
         else:
             self.fig.canvas.draw_idle()
+
+    def get_putter_state(self) -> dict[str, object]:
+        return dict(self._last_putter_state)
 
     def set_measure_point(self, mx, my, visible):
         self.measure_point.set_data([mx], [my])

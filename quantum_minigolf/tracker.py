@@ -235,6 +235,7 @@ class TrackerManager:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._calibration = self.cfg.calibration
+        self._ref_lock = threading.Lock()
         if self._calibration is not None:
             self.cfg.frame_width = self._calibration.frame_width
             self.cfg.frame_height = self._calibration.frame_height
@@ -284,12 +285,18 @@ class TrackerManager:
         else:
             x_px = float(np.clip(gx / max(nx, 1e-6) * self.cfg.frame_width, 0, self.cfg.frame_width))
             y_px = float(np.clip((1.0 - gy / max(ny, 1e-6)) * self.cfg.frame_height, 0, self.cfg.frame_height))
-        self._reference_px = np.array([x_px, y_px], dtype=np.float32)
-        self._last_reference_update = time.perf_counter()
+        with self._ref_lock:
+            self._reference_px = np.array([x_px, y_px], dtype=np.float32)
+            self._last_reference_update = time.perf_counter()
 
     def get_state(self) -> TrackerState:
         with self._state_lock:
             return TrackerState(**vars(self._state))
+
+    def get_reference_point(self) -> tuple[float, float]:
+        with self._ref_lock:
+            ref = np.array(self._reference_px, dtype=np.float32)
+        return float(ref[0]), float(ref[1])
 
     def pop_hits(self) -> list[TrackerHit]:
         with self._hit_lock:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import math
 import time
 from collections.abc import Callable
@@ -74,6 +75,25 @@ class QuantumMiniGolfGame:
         self._tracker_force_disabled = False
         self._tracker_area_valid = True
         self._tracker_last_area = 0.0
+        self._tracker_auto_scale = bool(getattr(self.cfg, 'tracker_auto_scale', True))
+        self._tracker_corr_scale_x = 1.0
+        self._tracker_corr_offset_x = 0.0
+        self._tracker_corr_scale_y = 1.0
+        self._tracker_corr_offset_y = 0.0
+        self._tracker_min_x: float | None = None
+        self._tracker_max_x: float | None = None
+        self._tracker_min_y: float | None = None
+        self._tracker_max_y: float | None = None
+        self._debug_log_enabled = bool(
+            getattr(self.cfg, 'use_tracker', False)
+            and getattr(self.cfg, 'log_data', False)
+        )
+        self._debug_log_path = Path(getattr(self.cfg, 'tracker_debug_log_path', 'vr_debug_log.txt'))
+        self._debug_log_timer = None
+        self._debug_prev_putter: dict[str, object] = {"center": None, "time": None}
+        self._debug_prev_tracker: dict[str, object] = {"center": None, "time": None}
+        self._debug_session_started = False
+        self._debug_log_write_failed = False
         if bool(getattr(self.cfg, 'enable_mouse_swing', False)):
             self._set_tracker_force_disabled(True)
         if getattr(self.cfg, 'use_tracker', False):
@@ -124,6 +144,8 @@ class QuantumMiniGolfGame:
                 self.tracker = None
             else:
                 self._start_tracker_poll()
+                if self._debug_log_enabled:
+                    self._start_debug_logging()
         self.viz.fig.canvas.mpl_connect('close_event', self._on_close)
 
         if self.cfg.flags.blitting:
@@ -534,6 +556,7 @@ class QuantumMiniGolfGame:
             except Exception:
                 pass
             self._tracker_timer = None
+        self._stop_debug_logging()
         if self.tracker:
             self.tracker.stop()
             self.tracker = None
@@ -554,7 +577,7 @@ class QuantumMiniGolfGame:
         if calibration is None:
             x = px[0] / self.tracker_cfg.frame_width * self.Nx
             y = (1.0 - px[1] / self.tracker_cfg.frame_height) * self.Ny
-            return float(x), float(y)
+            return self._apply_tracker_correction(float(x), float(y))
         board_x, board_y = calibration.camera_to_board(px)
         board_x = float(np.clip(board_x, 0.0, calibration.board_width))
         board_y = float(np.clip(board_y, 0.0, calibration.board_height))
@@ -562,7 +585,7 @@ class QuantumMiniGolfGame:
         scale_y = self.Ny / max(calibration.board_height, 1e-6)
         game_x = float(board_x * scale_x)
         game_y = float((calibration.board_height - board_y) * scale_y)
-        return game_x, game_y
+        return self._apply_tracker_correction(game_x, game_y)
 
     def _tracker_dir_to_game(
         self,
@@ -599,6 +622,67 @@ class QuantumMiniGolfGame:
             dtype=float,
         )
 
+    def _apply_tracker_correction(self, x: float, y: float) -> tuple[float, float]:
+        if getattr(self, '_tracker_auto_scale', False):
+            x = x * self._tracker_corr_scale_x + self._tracker_corr_offset_x
+            y = y * self._tracker_corr_scale_y + self._tracker_corr_offset_y
+        x = float(min(max(x, 0.0), float(self.Nx)))
+        y = float(min(max(y, 0.0), float(self.Ny)))
+        return x, y
+
+    def _register_tracker_span(self, led_a_game: tuple[float, float], led_b_game: tuple[float, float]) -> None:
+        if not self._tracker_auto_scale:
+            return
+        ax, ay = float(led_a_game[0]), float(led_a_game[1])
+        bx, by = float(led_b_game[0]), float(led_b_game[1])
+        min_x = min(ax, bx)
+        max_x = max(ax, bx)
+        min_y = min(ay, by)
+        max_y = max(ay, by)
+        if 0.0 <= min_x <= float(self.Nx):
+            if self._tracker_min_x is None or min_x < self._tracker_min_x:
+                self._tracker_min_x = min_x
+        if 0.0 <= max_x <= float(self.Nx):
+            if self._tracker_max_x is None or max_x > self._tracker_max_x:
+                self._tracker_max_x = max_x
+        if 0.0 <= min_y <= float(self.Ny):
+            if self._tracker_min_y is None or min_y < self._tracker_min_y:
+                self._tracker_min_y = min_y
+        if 0.0 <= max_y <= float(self.Ny):
+            if self._tracker_max_y is None or max_y > self._tracker_max_y:
+                self._tracker_max_y = max_y
+        self._update_tracker_scale()
+
+    def _update_tracker_scale(self) -> None:
+        if not self._tracker_auto_scale:
+            return
+        target_min_x = 1.0
+        target_max_x = float(self.Nx - 1)
+        min_x = self._tracker_min_x
+        max_x = self._tracker_max_x
+        if min_x is not None and max_x is not None:
+            span = max_x - min_x
+            target_span = target_max_x - target_min_x
+            if span >= target_span * 0.6:
+                scale = target_span / max(span, 1e-6)
+                offset = target_min_x - min_x * scale
+                alpha = 0.15
+                self._tracker_corr_scale_x = (1.0 - alpha) * self._tracker_corr_scale_x + alpha * scale
+                self._tracker_corr_offset_x = (1.0 - alpha) * self._tracker_corr_offset_x + alpha * offset
+        target_min_y = 1.0
+        target_max_y = float(self.Ny - 1)
+        min_y = self._tracker_min_y
+        max_y = self._tracker_max_y
+        if min_y is not None and max_y is not None:
+            span_y = max_y - min_y
+            target_span_y = target_max_y - target_min_y
+            if span_y >= target_span_y * 0.6:
+                scale_y = target_span_y / max(span_y, 1e-6)
+                offset_y = target_min_y - min_y * scale_y
+                alpha = 0.15
+                self._tracker_corr_scale_y = (1.0 - alpha) * self._tracker_corr_scale_y + alpha * scale_y
+                self._tracker_corr_offset_y = (1.0 - alpha) * self._tracker_corr_offset_y + alpha * offset_y
+
     def _poll_tracker(self):
         if not self.tracker:
             return
@@ -610,6 +694,7 @@ class QuantumMiniGolfGame:
         dir_px = state.direction_px
         led_a_px = getattr(state, 'led_a_px', None)
         led_b_px = getattr(state, 'led_b_px', None)
+        max_span_px = float(getattr(self.cfg, 'tracker_max_span_px', 220.0))
         visible = (
             state.visible
             and center_px is not None
@@ -617,6 +702,7 @@ class QuantumMiniGolfGame:
             and led_a_px is not None
             and led_b_px is not None
             and span_px >= max(min_span, 1e-6)
+            and span_px <= max_span_px
         )
         geometry_ok = False
         angle_deg = 0.0
@@ -635,12 +721,12 @@ class QuantumMiniGolfGame:
             )
             length_raw = float(np.linalg.norm(delta_game))
             if length_raw >= 1e-6:
-                dir_unit = delta_game / length_raw
-                angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
                 center = (
                     (led_a_game[0] + led_b_game[0]) * 0.5,
                     (led_a_game[1] + led_b_game[1]) * 0.5,
                 )
+                dir_unit = delta_game / max(length_raw, 1e-6)
+                angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
                 length_scale = float(getattr(self.cfg, 'tracker_length_scale', 1.0))
                 length_game = length_raw * length_scale
                 if length_game <= 0.0:
@@ -658,6 +744,7 @@ class QuantumMiniGolfGame:
                     thickness_game = min_thickness
                 area_game = float(max(0.0, length_game * thickness_game))
                 geometry_ok = True
+                self._register_tracker_span(led_a_game, led_b_game)
         area_limit = max(0.0, float(getattr(self.cfg, 'tracker_area_limit', 0.0)))
         area_blocked = geometry_ok and area_limit > 0.0 and area_game > area_limit
         if self._tracker_force_disabled:
@@ -927,6 +1014,215 @@ class QuantumMiniGolfGame:
             return
         self._shot_count = 0
         self._update_shot_counter()
+
+    # ----- debug logging
+    def _start_debug_logging(self):
+        if not self._debug_log_enabled or not getattr(self.cfg, 'use_tracker', False):
+            return
+        if self.tracker is None or self.viz is None:
+            return
+        if self._debug_log_timer is not None:
+            return
+        try:
+            self._debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        if not self._debug_session_started:
+            start_payload = {
+                "event": "debug_log_start",
+                "timestamp_wall": time.time(),
+                "tracker_frame": {
+                    "width": int(getattr(self.tracker_cfg, 'frame_width', 0)) if self.tracker_cfg else None,
+                    "height": int(getattr(self.tracker_cfg, 'frame_height', 0)) if self.tracker_cfg else None,
+                },
+            }
+            self._write_debug_log(start_payload)
+            self._debug_session_started = True
+        self._debug_prev_putter = {"center": None, "time": None}
+        self._debug_prev_tracker = {"center": None, "time": None}
+        timer = self.viz.fig.canvas.new_timer(interval=100)
+        timer.add_callback(self._debug_log_tick)
+        self._debug_log_timer = timer
+        try:
+            timer.start()
+        except Exception:
+            self._debug_log_timer = None
+
+    def _stop_debug_logging(self):
+        timer = self._debug_log_timer
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+            self._debug_log_timer = None
+        if self._debug_session_started:
+            self._write_debug_log({"event": "debug_log_stop", "timestamp_wall": time.time()})
+            self._debug_session_started = False
+
+    def _write_debug_log(self, payload: dict):
+        if self._debug_log_write_failed:
+            return
+        try:
+            with self._debug_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False))
+                handle.write("\n")
+        except Exception as exc:
+            print(f"[debug-log] Failed to write tracker debug entry: {exc}")
+            self._debug_log_write_failed = True
+
+    def _debug_log_tick(self):
+        if not getattr(self.cfg, 'use_tracker', False) or self.tracker is None:
+            return
+        try:
+            state = self.tracker.get_state()
+        except Exception as exc:
+            if not self._debug_log_write_failed:
+                print(f"[debug-log] Tracker state unavailable: {exc}")
+                self._debug_log_write_failed = True
+            return
+        if not state.timestamp:
+            return
+
+        frame_width = int(getattr(self.tracker_cfg, 'frame_width', 0)) if self.tracker_cfg else None
+        frame_height = int(getattr(self.tracker_cfg, 'frame_height', 0)) if self.tracker_cfg else None
+
+        def _tuple_to_list(value):
+            if value is None:
+                return None
+            return [float(value[0]), float(value[1])]
+
+        try:
+            reference_px = self.tracker.get_reference_point()
+        except Exception:
+            reference_px = None
+
+        putter_state = self.viz.get_putter_state()
+        putter_visible = bool(putter_state.get("visible")) if putter_state else False
+        putter_center = putter_state.get("center") if putter_state else None
+        now_perf = time.perf_counter()
+        putter_speed = None
+        prev_putter_center = self._debug_prev_putter.get("center")
+        prev_putter_time = self._debug_prev_putter.get("time")
+        if putter_visible and putter_center is not None and prev_putter_center is not None and prev_putter_time is not None:
+            dt_putter = now_perf - float(prev_putter_time)
+            if dt_putter > 1e-6:
+                dx = float(putter_center[0]) - float(prev_putter_center[0])
+                dy = float(putter_center[1]) - float(prev_putter_center[1])
+                putter_speed = math.hypot(dx, dy) / dt_putter
+        if putter_visible and putter_center is not None:
+            self._debug_prev_putter = {"center": (float(putter_center[0]), float(putter_center[1])), "time": now_perf}
+        else:
+            self._debug_prev_putter = {"center": None, "time": now_perf}
+
+        tracker_visible = bool(
+            state.visible
+            and state.center_px is not None
+            and state.direction_px is not None
+            and state.span_px and state.span_px > 0.0
+        )
+        tracker_center_px = state.center_px if tracker_visible else None
+        tracker_speed = None
+        prev_tracker_center = self._debug_prev_tracker.get("center")
+        prev_tracker_time = self._debug_prev_tracker.get("time")
+        if tracker_visible and tracker_center_px is not None and prev_tracker_center is not None and prev_tracker_time is not None:
+            dt_tracker = float(state.timestamp) - float(prev_tracker_time)
+            if dt_tracker > 1e-6:
+                dx_px = float(tracker_center_px[0]) - float(prev_tracker_center[0])
+                dy_px = float(tracker_center_px[1]) - float(prev_tracker_center[1])
+                tracker_speed = math.hypot(dx_px, dy_px) / dt_tracker
+        if tracker_visible and tracker_center_px is not None:
+            self._debug_prev_tracker = {
+                "center": (float(tracker_center_px[0]), float(tracker_center_px[1])),
+                "time": float(state.timestamp),
+            }
+        else:
+            self._debug_prev_tracker = {"center": None, "time": float(state.timestamp)}
+
+        club_game_center = None
+        if putter_visible and putter_center is not None:
+            club_game_center = (float(putter_center[0]), float(putter_center[1]))
+        elif tracker_visible and tracker_center_px is not None:
+            club_game_center = self._tracker_px_to_game(tracker_center_px)
+
+        ball_x = float(self.ball_pos[0])
+        ball_y = float(self.ball_pos[1])
+
+        club_to_ball_distance = None
+        angle_abs = None
+        angle_signed = None
+        club_heading_deg = None
+        ball_heading_deg = None
+        heading_vec = None
+        if putter_visible and putter_state is not None:
+            heading_angle = float(putter_state.get("angle_deg", 0.0))
+            angle_rad = math.radians(heading_angle)
+            heading_vec = np.array([math.cos(angle_rad), math.sin(angle_rad)], dtype=float)
+            club_heading_deg = heading_angle
+        elif tracker_visible and state.direction_px is not None:
+            dir_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
+            dir_norm = np.linalg.norm(dir_game)
+            if dir_norm > 1e-6:
+                heading_vec = dir_game / dir_norm
+                club_heading_deg = math.degrees(math.atan2(heading_vec[1], heading_vec[0]))
+
+        if club_game_center is not None:
+            dx_ball = ball_x - float(club_game_center[0])
+            dy_ball = ball_y - float(club_game_center[1])
+            club_to_ball_distance = math.hypot(dx_ball, dy_ball)
+            if club_to_ball_distance > 1e-6:
+                ball_heading_deg = math.degrees(math.atan2(dy_ball, dx_ball))
+        if heading_vec is not None and club_game_center is not None and club_to_ball_distance and club_to_ball_distance > 1e-6:
+            ball_vec = np.array(
+                [ball_x - float(club_game_center[0]), ball_y - float(club_game_center[1])],
+                dtype=float,
+            )
+            ball_unit = ball_vec / club_to_ball_distance
+            dot = float(np.clip(np.dot(heading_vec, ball_unit), -1.0, 1.0))
+            angle_abs = math.degrees(math.acos(dot))
+            cross = float(heading_vec[0] * ball_unit[1] - heading_vec[1] * ball_unit[0])
+            angle_signed = angle_abs if cross >= 0 else -angle_abs
+
+        border_width = float(self.viz.border.get_width())
+        border_height = float(self.viz.border.get_height())
+
+        entry = {
+            "timestamp_wall": time.time(),
+            "timestamp_tracker": float(state.timestamp),
+            "tracking_area": {
+                "frame_width": frame_width,
+                "frame_height": frame_height,
+                "frame_pixels": frame_width * frame_height if frame_width and frame_height else None,
+                "overlay_area_game": float(self._tracker_last_area),
+            },
+            "map_border": {"width": border_width, "height": border_height},
+            "ball": {"x": ball_x, "y": ball_y},
+            "putter": {
+                "visible": putter_visible,
+                "center_game": _tuple_to_list(putter_center if putter_visible else None),
+                "length": float(putter_state.get("length", 0.0)) if putter_state else None,
+                "thickness": float(putter_state.get("thickness", 0.0)) if putter_state else None,
+                "angle_deg": float(putter_state.get("angle_deg", 0.0)) if putter_state else None,
+                "speed_game_per_s": putter_speed,
+            },
+            "tracker": {
+                "visible": tracker_visible,
+                "center_px": _tuple_to_list(tracker_center_px),
+                "direction_px": _tuple_to_list(state.direction_px if tracker_visible else None),
+                "span_px": float(state.span_px or 0.0) if tracker_visible else None,
+                "speed_px_per_s": tracker_speed,
+            },
+            "reference_px": _tuple_to_list(reference_px),
+            "club_game": {
+                "center": _tuple_to_list(club_game_center),
+                "heading_deg": club_heading_deg,
+                "distance_to_ball": club_to_ball_distance,
+                "angle_to_ball_deg": angle_abs,
+                "angle_to_ball_signed_deg": angle_signed,
+                "ball_heading_from_club_deg": ball_heading_deg,
+            },
+        }
+        self._write_debug_log(entry)
 
     def _compute_interference_profile(self, density):
         width_cfg = getattr(self.cfg, 'interference_probe_width', 4)
