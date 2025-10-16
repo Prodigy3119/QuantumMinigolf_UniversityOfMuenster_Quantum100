@@ -68,6 +68,9 @@ class QuantumMiniGolfGame:
         self.tracker_cfg = None
         self._tracker_timer = None
         self._tracker_overlay_enabled = True
+        self._tracker_force_disabled = False
+        self._tracker_area_valid = True
+        self._tracker_last_area = 0.0
         if getattr(self.cfg, 'use_tracker', False):
             preloaded_calibration = getattr(self.cfg, 'tracker_calibration_data', None)
             calibration = preloaded_calibration if isinstance(preloaded_calibration, CalibrationData) else None
@@ -604,13 +607,16 @@ class QuantumMiniGolfGame:
             and state.direction_px is not None
             and span_px >= max(min_span, 1e-6)
         )
-        overlay_visible = visible and self._tracker_overlay_enabled
-        if overlay_visible:
+        geometry_ok = False
+        angle_deg = 0.0
+        center = (0.0, 0.0)
+        length_game = 0.0
+        thickness_game = 0.0
+        area_game = 0.0
+        if visible:
             dir_step_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
             step_norm = np.linalg.norm(dir_step_game)
-            if step_norm < 1e-6:
-                overlay_visible = False
-            else:
+            if step_norm >= 1e-6:
                 dir_unit = dir_step_game / step_norm
                 angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
                 center = self._tracker_px_to_game(state.center_px)
@@ -629,15 +635,33 @@ class QuantumMiniGolfGame:
                 min_thickness = float(perp_norm * max(1.5, overlay_thickness_px * 0.25))
                 if thickness_game < min_thickness:
                     thickness_game = min_thickness
-                self.viz.update_putter_overlay(center, length_game, thickness_game, angle_deg, True)
-        if not overlay_visible:
+                area_game = float(max(0.0, length_game * thickness_game))
+                geometry_ok = True
+        area_limit = max(0.0, float(getattr(self.cfg, 'tracker_area_limit', 0.0)))
+        area_blocked = geometry_ok and area_limit > 0.0 and area_game > area_limit
+        if self._tracker_force_disabled:
+            area_blocked = True
+        self._tracker_last_area = float(area_game)
+        allow_hits = geometry_ok and not area_blocked
+        self._tracker_area_valid = allow_hits
+        overlay_visible = (
+            geometry_ok
+            and self._tracker_overlay_enabled
+            and not area_blocked
+        )
+        if overlay_visible:
+            self.viz.update_putter_overlay(center, length_game, thickness_game, angle_deg, True)
+        else:
             self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
         hits = self.tracker.pop_hits()
-        for hit in hits:
-            self._handle_tracker_hit(hit)
+        if allow_hits:
+            for hit in hits:
+                self._handle_tracker_hit(hit)
 
     def _handle_tracker_hit(self, hit):
         if self.shot_in_progress or self.game_over:
+            return
+        if not self._tracker_area_valid:
             return
         dir_game = self._tracker_dir_to_game(hit.center_px, hit.direction_px)
         norm = np.linalg.norm(dir_game)
@@ -1051,6 +1075,10 @@ class QuantumMiniGolfGame:
         old = bool(getattr(self.cfg, 'enable_mouse_swing', False))
         new = not old
         self.cfg.enable_mouse_swing = new
+        if new:
+            self._set_tracker_force_disabled(True)
+        else:
+            self._set_tracker_force_disabled(False)
         if not new:
             self.cursor_inside = False
             self.indicator_pos = None
@@ -1070,6 +1098,21 @@ class QuantumMiniGolfGame:
             self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
         new_state = 'visible' if self._tracker_overlay_enabled else 'hidden'
         self._announce_switch('o', 'tracker overlay', old_state, new_state)
+
+    def _set_tracker_force_disabled(self, disabled: bool):
+        disabled = bool(disabled)
+        if self._tracker_force_disabled == disabled:
+            return
+        self._tracker_force_disabled = disabled
+        if disabled:
+            self._tracker_area_valid = False
+            self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
+            if self.tracker:
+                self.tracker.pop_hits()
+        else:
+            # Allow tracker poll to re-enable overlay when geometry is valid
+            if self.tracker:
+                self._update_tracker_reference()
 
     def _print_hotkey_help(self):
         BLUE = "\033[34m\033[4m"
@@ -1330,6 +1373,7 @@ class QuantumMiniGolfGame:
             ('wall', 'Wall Thickness', 0.05,5.0,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
             ('tracker_thresh', 'Tracker Threshold', 5.0, 250.0, float(getattr(self.cfg, 'tracker_threshold', 60)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
             ('tracker_speed',  'Tracker Speed',     0.001, 0.04, float(self.cfg.tracker_speed_scale), 0.0005, '#e377c2', self._on_tracker_speed_scale_change),
+            ('tracker_area',  'Tracker Max Area',   0.0, 20000.0, float(getattr(self.cfg, 'tracker_area_limit', 0.0)), 100.0, '#7f7f7f', self._on_tracker_area_limit_change),
         ]
 
         for name, label, vmin, vmax, val, step, color, callback in slider_specs:
@@ -1435,6 +1479,7 @@ class QuantumMiniGolfGame:
             'wall': float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)),
             'tracker_thresh': float(getattr(self.cfg, 'tracker_threshold', 60)),
             'tracker_speed': float(self.cfg.tracker_speed_scale),
+            'tracker_area': float(getattr(self.cfg, 'tracker_area_limit', 0.0)),
         }
         self._panel_updating = True
         try:
@@ -1479,6 +1524,9 @@ class QuantumMiniGolfGame:
             sliders['tracker_thresh'].valtext.set_text(f"{int(round(getattr(self.cfg, 'tracker_threshold', 60)))}")
         if 'tracker_speed' in sliders:
             sliders['tracker_speed'].valtext.set_text(f"{self.cfg.tracker_speed_scale:.4f}")
+        if 'tracker_area' in sliders:
+            limit = float(getattr(self.cfg, 'tracker_area_limit', 0.0))
+            sliders['tracker_area'].valtext.set_text('inf' if limit <= 0.0 else f"{limit:.0f}")
         if 'cubic_text' in self._panel_elements:
             cubic = max(0.0, 1.0 - self.cfg.shot_friction_linear - self.cfg.shot_friction_quadratic)
             self._panel_elements['cubic_text'].set_text(f"Friction Cubic: {cubic:.3f}")
@@ -1592,6 +1640,14 @@ class QuantumMiniGolfGame:
             return
         speed = float(np.clip(val, 0.001, 0.1))
         self.cfg.tracker_speed_scale = speed
+        self._refresh_slider_texts(draw=False)
+        self._panel_draw_idle()
+
+    def _on_tracker_area_limit_change(self, val):
+        if getattr(self, '_panel_updating', False):
+            return
+        limit = float(max(0.0, val))
+        self.cfg.tracker_area_limit = limit
         self._refresh_slider_texts(draw=False)
         self._panel_draw_idle()
 

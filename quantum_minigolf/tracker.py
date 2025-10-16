@@ -442,6 +442,8 @@ class TrackerManager:
 
                 impact_hit = False
                 contact_pt = None
+                closing_speed = 0.0
+                toward_ball = False
                 if both and dir_ema is not None:
                     mid = (led[0] + led[1]) * 0.5
                     sweep_margin = 0.0
@@ -455,9 +457,21 @@ class TrackerManager:
                     if hit:
                         contact_pt = contact
                         cv2.circle(debug_img, (int(contact[0]), int(contact[1])), 6, (0, 255, 255), -1)
+                        # Estimate how quickly the putter is moving toward the reference point (ball).
+                        to_ball = self._reference_px - mid
+                        dist_to_ball = float(np.linalg.norm(to_ball))
+                        if dist_to_ball > 1e-6:
+                            closing_speed = float(np.dot(vel_center, to_ball / dist_to_ball))
+                            toward_ball = closing_speed > 0.0
                     if hit and not overlap_prev:
                         speed = float(np.linalg.norm(vel_center))
-                        if speed >= cfg.min_speed_impact and (now - last_impact_time) > cfg.impact_cooldown_sec:
+                        # Allow gentler hits when the motion is directed into the ball.
+                        min_speed = float(cfg.min_speed_impact)
+                        min_closing = max(5.0, min_speed * 0.15)
+                        allow_hit = speed >= min_speed
+                        if not allow_hit and toward_ball and closing_speed >= min_closing:
+                            allow_hit = True
+                        if allow_hit and (now - last_impact_time) > cfg.impact_cooldown_sec:
                             last_impact_time = now
                             impact_hit = True
                     overlap_prev = hit
@@ -487,6 +501,8 @@ class TrackerManager:
 
                 if impact_hit and center is not None:
                     vel_mag = float(np.linalg.norm(vel_center))
+                    if toward_ball:
+                        vel_mag = max(vel_mag, closing_speed)
                     if vel_mag > 1e-6:
                         dir_vel = vel_center / vel_mag
                         hit = TrackerHit(
