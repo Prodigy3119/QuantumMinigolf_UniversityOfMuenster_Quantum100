@@ -4,8 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Hotkeys work in Control Panel focus&#10;- &quot;I&quot; also measures if shot was performed&#10;- added &quot;o&quot; hotkey to disable tracker&#10;- updated hotkey list&#10;- Changes in variables (e.g. speed to 2.5)">
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/tracker.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/tracker.py" afterDir="false" />
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Test">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -148,7 +148,14 @@
       <option name="project" value="LOCAL" />
       <updated>1760623906888</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="- Adjust tracker/hit computation&#10;- Added threshold to display club depending on its area&#10;- Disable the tracker in mouse/software mode">
+      <created>1760626553548</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1760626553548</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -167,6 +174,8 @@
     <MESSAGE value="improved tracking" />
     <MESSAGE value="Slider changes" />
     <MESSAGE value="- Hotkeys work in Control Panel focus&#10;- &quot;I&quot; also measures if shot was performed&#10;- added &quot;o&quot; hotkey to disable tracker&#10;- updated hotkey list&#10;- Changes in variables (e.g. speed to 2.5)" />
-    <option name="LAST_COMMIT_MESSAGE" value="- Hotkeys work in Control Panel focus&#10;- &quot;I&quot; also measures if shot was performed&#10;- added &quot;o&quot; hotkey to disable tracker&#10;- updated hotkey list&#10;- Changes in variables (e.g. speed to 2.5)" />
+    <MESSAGE value="- Adjust tracker/hit computation&#10;- Added threshold to display club depending on its area&#10;- Disable the tracker in mouse/software mode" />
+    <MESSAGE value="Test" />
+    <option name="LAST_COMMIT_MESSAGE" value="Test" />
   </component>
 </project>

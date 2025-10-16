@@ -5,6 +5,7 @@ import sys
 import textwrap
 import time
 from pathlib import Path
+import sys
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -15,12 +16,22 @@ except Exception as exc:  # pragma: no cover
     print(f"[error] OpenCV is required for calibration: {exc}", file=sys.stderr)
     raise
 
-from quantum_minigolf.calibration import (
-    CalibrationData,
-    compute_homography,
-    ensure_course_preview,
-    order_points_clockwise,
-)
+try:
+    from quantum_minigolf.calibration import (
+        CalibrationData,
+        compute_homography,
+        ensure_course_preview,
+        order_points_clockwise,
+    )
+except ModuleNotFoundError:  # pragma: no cover - fallback when run as a script
+    package_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(package_root))
+    from quantum_minigolf.calibration import (
+        CalibrationData,
+        compute_homography,
+        ensure_course_preview,
+        order_points_clockwise,
+    )
 
 
 Point = Tuple[float, float]
