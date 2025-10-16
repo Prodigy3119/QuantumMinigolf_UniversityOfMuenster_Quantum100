@@ -104,7 +104,7 @@ class GameConfig:
     overlay_every: int = 3
 
     # Motion scaling
-    movement_speed_scale: float = 2.0  # Multiplier applied to ball/wave travel after a shot
+    movement_speed_scale: float = 2.5  # Multiplier applied to ball/wave travel after a shot
 
     # Tracker integration
     use_tracker: bool = True

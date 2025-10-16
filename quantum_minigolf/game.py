@@ -67,6 +67,7 @@ class QuantumMiniGolfGame:
         self.tracker = None
         self.tracker_cfg = None
         self._tracker_timer = None
+        self._tracker_overlay_enabled = True
         if getattr(self.cfg, 'use_tracker', False):
             preloaded_calibration = getattr(self.cfg, 'tracker_calibration_data', None)
             calibration = preloaded_calibration if isinstance(preloaded_calibration, CalibrationData) else None
@@ -267,6 +268,7 @@ class QuantumMiniGolfGame:
         self._panel_updating = False
         self._panel_fig = None
         self._panel_close_cid = None
+        self._panel_key_cid = None
 
         if getattr(self.cfg, 'show_control_panel', True):
             if Slider is None:
@@ -602,11 +604,12 @@ class QuantumMiniGolfGame:
             and state.direction_px is not None
             and span_px >= max(min_span, 1e-6)
         )
-        if visible:
+        overlay_visible = visible and self._tracker_overlay_enabled
+        if overlay_visible:
             dir_step_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
             step_norm = np.linalg.norm(dir_step_game)
             if step_norm < 1e-6:
-                visible = False
+                overlay_visible = False
             else:
                 dir_unit = dir_step_game / step_norm
                 angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
@@ -627,7 +630,7 @@ class QuantumMiniGolfGame:
                 if thickness_game < min_thickness:
                     thickness_game = min_thickness
                 self.viz.update_putter_overlay(center, length_game, thickness_game, angle_deg, True)
-        if not visible:
+        if not overlay_visible:
             self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
         hits = self.tracker.pop_hits()
         for hit in hits:
@@ -749,7 +752,17 @@ class QuantumMiniGolfGame:
             if self._mode_allows_measure():
                 self._measure_now()
         elif key == 'i':
-            if self._mode_allows_quantum():
+            if not self._mode_allows_quantum():
+                return
+            if self.game_over and not self.shot_in_progress:
+                if not self.show_info:
+                    self._toggle_info_overlay()
+                else:
+                    if self._mode_allows_measure():
+                        self._measure_now()
+                    else:
+                        print('[i] Quantum measurements are disabled in this mode.')
+            else:
                 self._toggle_info_overlay()
         elif key == '#':
             self._cycle_course('quantum_demo')
@@ -763,6 +776,8 @@ class QuantumMiniGolfGame:
             self._toggle_shot_stop_mode()
         elif key == 'g':
             self._toggle_mouse_swing()
+        elif key == 'o':
+            self._toggle_tracker_overlay()
         elif key == 'u':
             self._toggle_config_panel()
         elif key == 'l':
@@ -1048,6 +1063,14 @@ class QuantumMiniGolfGame:
                 self.viz.fig.canvas.draw_idle()
         self._announce_switch('g', 'enable_mouse_swing', old, new)
 
+    def _toggle_tracker_overlay(self):
+        old_state = 'visible' if self._tracker_overlay_enabled else 'hidden'
+        self._tracker_overlay_enabled = not self._tracker_overlay_enabled
+        if not self._tracker_overlay_enabled:
+            self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
+        new_state = 'visible' if self._tracker_overlay_enabled else 'hidden'
+        self._announce_switch('o', 'tracker overlay', old_state, new_state)
+
     def _print_hotkey_help(self):
         BLUE = "\033[34m\033[4m"
         RESET = "\033[0m"
@@ -1070,6 +1093,7 @@ class QuantumMiniGolfGame:
         mouse_state = 'on' if getattr(self.cfg, 'enable_mouse_swing', False) else 'off'
         panel_state = 'open' if self._config_panel_active else 'closed'
         interference_state = 'visible' if self.show_interference else 'hidden'
+        tracker_overlay_state = 'visible' if self._tracker_overlay_enabled else 'hidden'
         if self._playback_path:
             try:
                 playback_state = Path(self._playback_path).name
@@ -1084,13 +1108,14 @@ class QuantumMiniGolfGame:
             ("tab", "Cycle obstacle map", self.cfg.map_kind),
             ("c", "Cycle display mode", self.mode),
             ("m", "Force quantum measurement", measurement_state),
-            ("i", "Toggle info overlay", info_state),
+            ("i", "Info overlay / post-shot measure", info_state),
             ("#", "Cycle quantum demo course", course_demo_state),
             ("-", "Cycle advanced showcase course", course_show_state),
             ("b", "Toggle edge boundary reflect/absorb", self.cfg.edge_boundary),
             ("w", "Toggle wave initial profile packet/front", getattr(self.cfg, 'wave_initial_profile', 'packet')),
             ("t", "Toggle shot stop mode time/friction", getattr(self.cfg, 'shot_stop_mode', 'time')),
             ("g", "Toggle mouse swing control", mouse_state),
+            ("o", "Toggle tracker overlay visibility", tracker_overlay_state),
             ("u", "Toggle control panel window", panel_state),
             ("l", "Toggle interference profile view", interference_state),
             ("d", "Play latest recording (if available)", playback_state),
@@ -1257,6 +1282,11 @@ class QuantumMiniGolfGame:
         else:
             self._activate_config_panel()
 
+    def _on_panel_key(self, event):
+        if event is None:
+            return
+        self._on_key(event)
+
     def _activate_config_panel(self):
         if self._config_panel_active or Slider is None:
             if Slider is None:
@@ -1272,6 +1302,7 @@ class QuantumMiniGolfGame:
 
         self._panel_fig = fig
         self._panel_close_cid = fig.canvas.mpl_connect('close_event', self._on_panel_close)
+        self._panel_key_cid = fig.canvas.mpl_connect('key_press_event', self._on_panel_key)
 
         self._panel_axes_list.clear()
         self._panel_sliders.clear()
@@ -1330,6 +1361,12 @@ class QuantumMiniGolfGame:
         self._panel_updating = False
         self.cfg.show_control_panel = False
         if self._panel_fig is not None:
+            if self._panel_key_cid is not None:
+                try:
+                    self._panel_fig.canvas.mpl_disconnect(self._panel_key_cid)
+                except Exception:
+                    pass
+                self._panel_key_cid = None
             try:
                 plt.close(self._panel_fig)
             except Exception:
@@ -1339,14 +1376,23 @@ class QuantumMiniGolfGame:
             self._panel_sliders.clear()
             self._panel_elements.clear()
             self._panel_close_cid = None
+            self._panel_key_cid = None
 
     def _on_panel_close(self, _event):
+        if self._panel_key_cid is not None:
+            canvas = getattr(_event, 'canvas', None)
+            if canvas is not None:
+                try:
+                    canvas.mpl_disconnect(self._panel_key_cid)
+                except Exception:
+                    pass
         self._panel_axes_list.clear()
         self._panel_sliders.clear()
         self._panel_elements.clear()
         self._panel_updating = False
         self._panel_fig = None
         self._panel_close_cid = None
+        self._panel_key_cid = None
         self._config_panel_active = False
         self.cfg.show_control_panel = False
 
