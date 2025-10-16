@@ -294,6 +294,9 @@ def build_config(args):
     elif args.config_panel:
         cfg.show_control_panel = True
 
+    if getattr(args, "multiple_shots", False):
+        cfg.multiple_shots = True
+
     if args.vr is not None:
         if args.vr:
             cfg.enable_mouse_swing = False
@@ -336,6 +339,7 @@ def parse_args():
     parser.add_argument('--boost-increment', type=float, help='Boost increment per measurement')
     parser.add_argument('--boost-factor', type=float, help='Base probability boost applied when enabled')
     parser.add_argument('--mouse-swing', action='store_true', help='Enable mouse swing control')
+    parser.add_argument('--multiple-shots', action='store_true', help='Allow consecutive shots and track attempts')
     parser.add_argument('--config-panel', action='store_true', help='Force the control panel window to open on start')
     parser.add_argument('--no-control-panel', action='store_true', help='Disable the separate control panel window')
 

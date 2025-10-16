@@ -52,6 +52,7 @@ class GameConfig:
 
     # Controls
     enable_mouse_swing: bool = True  # True enables mouse hits, False is standard for VR
+    multiple_shots: bool = False  # Enable multi-shot gameplay (ball continues from last position)
 
     # Tunneling / energy mapping
     kmin_frac: float = 0.15     # min fraction of k_max used for very slow swings

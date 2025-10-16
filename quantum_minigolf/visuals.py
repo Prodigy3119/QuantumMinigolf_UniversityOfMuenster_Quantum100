@@ -171,6 +171,13 @@ class Visuals:
         )
         if animated: self.class_label.set_animated(True)
 
+        self.shot_counter_label = self.ax.text(
+            Nx - 4, Ny - 4, "", color='gold', fontsize=12, fontweight='bold',
+            va='top', ha='right', path_effects=[pe.withStroke(linewidth=2.5, foreground='black')]
+        )
+        if animated: self.shot_counter_label.set_animated(True)
+        self.shot_counter_label.set_visible(False)
+
         self.hole_msg = self.ax.text(
             Nx / 2, Ny - 6, "Wavefunction hit - perfect shot!",
             color='purple', fontsize=18, fontweight='bold', ha='center', va='top',
@@ -407,6 +414,18 @@ class Visuals:
             self.fig.canvas.manager.set_window_title(title)
         except Exception:
             pass
+
+    def update_shot_counter(self, count: int | None):
+        if count is None:
+            self.shot_counter_label.set_text("")
+            self.shot_counter_label.set_visible(False)
+        else:
+            self.shot_counter_label.set_text(f"Shots: {count}")
+            self.shot_counter_label.set_visible(True)
+        if self.flags.blitting:
+            self._blit_draw()
+        else:
+            self.fig.canvas.draw_idle()
 
     # ------------------------------------------------------------------ overlay helpers
 

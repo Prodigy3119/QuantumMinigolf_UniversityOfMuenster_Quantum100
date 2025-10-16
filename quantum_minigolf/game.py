@@ -57,6 +57,8 @@ class QuantumMiniGolfGame:
         self.hole_center = self.course.hole_center.copy()
         self.ball_pos = np.array(
             [float(start_x), self.Ny / 2], dtype=np.float32)
+        self._multiple_shots_enabled = bool(getattr(self.cfg, 'multiple_shots', False))
+        self._shot_count = 0
 
         # visuals
         self.viz = Visuals(self.Nx, self.Ny, self.hole_center,
@@ -64,6 +66,7 @@ class QuantumMiniGolfGame:
         self.viz.set_course_patches(self.course.course_patches)
         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
         self.viz.update_title(self._title_text())
+        self._update_shot_counter()
         self.tracker = None
         self.tracker_cfg = None
         self._tracker_timer = None
@@ -911,6 +914,20 @@ class QuantumMiniGolfGame:
             self.viz.update_interference_pattern(profile)
         return True
 
+    # ----- multi-shot helpers
+    def _update_shot_counter(self):
+        if not getattr(self, '_multiple_shots_enabled', False):
+            self.viz.update_shot_counter(None)
+        else:
+            self.viz.update_shot_counter(self._shot_count)
+
+    def _reset_shot_counter(self):
+        if not getattr(self, '_multiple_shots_enabled', False):
+            self.viz.update_shot_counter(None)
+            return
+        self._shot_count = 0
+        self._update_shot_counter()
+
     def _compute_interference_profile(self, density):
         width_cfg = getattr(self.cfg, 'interference_probe_width', 4)
         width = int(max(1, width_cfg))
@@ -1675,6 +1692,7 @@ class QuantumMiniGolfGame:
         self.ball_pos = np.array(
             [float(start_x), self.Ny / 2], dtype=np.float32)
         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
+        self._reset_shot_counter()
 
         plot_wave = self._mode_allows_quantum()
         self.viz.set_wave_visible(plot_wave)
@@ -1898,6 +1916,9 @@ class QuantumMiniGolfGame:
 
             self.shot_in_progress = True
             self.game_over = False
+            if self._multiple_shots_enabled:
+                self._shot_count += 1
+                self._update_shot_counter()
             self.viz.clear_classical_overlay()
             self.viz.clear_wave_overlay(simulate_wave)
             self.viz.measure_marker.set_visible(False)
@@ -2239,6 +2260,12 @@ class QuantumMiniGolfGame:
             if self.tracker:
                 self._update_tracker_reference()
             self.course.update_exponents(old_dt, self.k2, self.c64)
+        if self._multiple_shots_enabled:
+            if sunk:
+                self._reset(ball_only=False)
+            else:
+                self.game_over = False
+                self._update_shot_counter()
     # ----- measurement helpers
 
     def _do_end_measurement(self):
