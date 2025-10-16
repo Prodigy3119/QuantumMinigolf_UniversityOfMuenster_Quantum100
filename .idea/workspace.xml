@@ -54,7 +54,7 @@
       <force-push-target remote-path="origin" branch="main" />
     </force-push-targets>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.backends">
     <configuration name="GUI" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="00 Quantum Minigolf" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -155,7 +155,21 @@
       <option name="project" value="LOCAL" />
       <updated>1760626553548</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="Test">
+      <created>1760628157253</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1760628157253</updated>
+    </task>
+    <task id="LOCAL-00007" summary="Test">
+      <created>1760628502452</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1760628502452</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">

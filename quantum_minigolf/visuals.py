@@ -452,6 +452,10 @@ class Visuals:
     def update_putter_overlay(self, center, length, thickness, angle_deg, visible):
         if not visible:
             self.putter_patch.set_visible(False)
+            if self.flags.blitting:
+                self._blit_draw()
+            else:
+                self.fig.canvas.draw_idle()
             return
         cx, cy = center
         half_l = 0.5 * float(length)

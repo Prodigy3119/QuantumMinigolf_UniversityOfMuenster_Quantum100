@@ -71,6 +71,8 @@ class QuantumMiniGolfGame:
         self._tracker_force_disabled = False
         self._tracker_area_valid = True
         self._tracker_last_area = 0.0
+        if bool(getattr(self.cfg, 'enable_mouse_swing', False)):
+            self._set_tracker_force_disabled(True)
         if getattr(self.cfg, 'use_tracker', False):
             preloaded_calibration = getattr(self.cfg, 'tracker_calibration_data', None)
             calibration = preloaded_calibration if isinstance(preloaded_calibration, CalibrationData) else None
