@@ -80,6 +80,8 @@ class TrackerState:
     direction_px: Optional[Tuple[float, float]] = None
     span_px: float = 0.0
     visible: bool = False
+    led_a_px: Optional[Tuple[float, float]] = None
+    led_b_px: Optional[Tuple[float, float]] = None
 
 
 def _check_cv2_available():
@@ -490,12 +492,17 @@ class TrackerManager:
                         self._stop.set()
                         break
 
+                led_a_px = None if led[0] is None else (float(led[0][0]), float(led[0][1]))
+                led_b_px = None if led[1] is None else (float(led[1][0]), float(led[1][1]))
+
                 state = TrackerState(
                     timestamp=now,
                     center_px=None if center is None else (float(center[0]), float(center[1])),
                     direction_px=None if putter_dir is None else (float(putter_dir[0]), float(putter_dir[1])),
                     span_px=float(led_span if not math.isnan(led_span) else 0.0),
-                    visible=bool(both)
+                    visible=bool(both),
+                    led_a_px=led_a_px,
+                    led_b_px=led_b_px,
                 )
                 self._register_state(state)
 

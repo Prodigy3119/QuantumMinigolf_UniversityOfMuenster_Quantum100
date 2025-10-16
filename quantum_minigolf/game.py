@@ -603,10 +603,16 @@ class QuantumMiniGolfGame:
         self._update_tracker_reference()
         span_px = float(state.span_px or 0.0)
         min_span = float(getattr(self.cfg, 'tracker_min_span_px', 0.0))
+        center_px = state.center_px
+        dir_px = state.direction_px
+        led_a_px = getattr(state, 'led_a_px', None)
+        led_b_px = getattr(state, 'led_b_px', None)
         visible = (
             state.visible
-            and state.center_px is not None
-            and state.direction_px is not None
+            and center_px is not None
+            and dir_px is not None
+            and led_a_px is not None
+            and led_b_px is not None
             and span_px >= max(min_span, 1e-6)
         )
         geometry_ok = False
@@ -616,22 +622,32 @@ class QuantumMiniGolfGame:
         thickness_game = 0.0
         area_game = 0.0
         if visible:
-            dir_step_game = self._tracker_dir_to_game(state.center_px, state.direction_px)
+            dir_step_game = self._tracker_dir_to_game(center_px, dir_px)
             step_norm = np.linalg.norm(dir_step_game)
-            if step_norm >= 1e-6:
-                dir_unit = dir_step_game / step_norm
+            led_a_game = self._tracker_px_to_game(led_a_px)
+            led_b_game = self._tracker_px_to_game(led_b_px)
+            delta_game = np.array(
+                [led_b_game[0] - led_a_game[0], led_b_game[1] - led_a_game[1]],
+                dtype=float,
+            )
+            length_raw = float(np.linalg.norm(delta_game))
+            if length_raw >= 1e-6:
+                dir_unit = delta_game / length_raw
                 angle_deg = math.degrees(math.atan2(dir_unit[1], dir_unit[0]))
-                center = self._tracker_px_to_game(state.center_px)
+                center = (
+                    (led_a_game[0] + led_b_game[0]) * 0.5,
+                    (led_a_game[1] + led_b_game[1]) * 0.5,
+                )
                 length_scale = float(getattr(self.cfg, 'tracker_length_scale', 1.0))
-                length_game = float(span_px * step_norm * length_scale)
+                length_game = length_raw * length_scale
                 if length_game <= 0.0:
-                    length_game = float(span_px * step_norm)
+                    length_game = length_raw
                 overlay_thickness_px = max(1.0, float(getattr(self.cfg, 'tracker_overlay_thickness_px', 4.0)))
-                perp_cam = (-state.direction_px[1], state.direction_px[0])
-                perp_step_game = self._tracker_dir_to_game(state.center_px, perp_cam)
+                perp_cam = (-dir_px[1], dir_px[0])
+                perp_step_game = self._tracker_dir_to_game(center_px, perp_cam)
                 perp_norm = np.linalg.norm(perp_step_game)
                 if perp_norm < 1e-6:
-                    perp_norm = step_norm
+                    perp_norm = step_norm if step_norm >= 1e-6 else length_raw / max(span_px, 1e-6)
                 thickness_scale = float(getattr(self.cfg, 'tracker_thickness_scale', 1.0))
                 thickness_game = float(perp_norm * overlay_thickness_px * thickness_scale)
                 min_thickness = float(perp_norm * max(1.5, overlay_thickness_px * 0.25))
