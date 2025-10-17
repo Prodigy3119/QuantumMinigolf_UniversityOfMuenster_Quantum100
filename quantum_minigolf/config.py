@@ -127,6 +127,7 @@ class GameConfig:
 
     tracker_auto_scale: bool = False
     tracker_max_span_px: float = 220.0
+    tracker_coord_margin: float = 12.0
 
     # Time limit per shot (simulation seconds); None = no limit
     shot_time_limit: float = 120

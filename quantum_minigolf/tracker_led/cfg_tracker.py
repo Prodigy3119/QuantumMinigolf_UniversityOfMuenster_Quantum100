@@ -20,7 +20,7 @@ DIR_EMA_ALPHA       = 0.40    # > quicker orientation; < steadier but lags
 
 # Ball / impact zone
 REF_POINT           = (FRAME_WIDTH // 2, FRAME_HEIGHT // 2)  # center of the "ball" in px
-IMPACT_RADIUS_PX    = 20      # > larger zone -> earlier/easier triggers; < must get closer to trigger
+IMPACT_RADIUS_PX    = 10      # > larger zone -> earlier/easier triggers; < must get closer to trigger
 MIN_SPEED_IMPACT    = 100.0   # > require faster swing (fewer false hits); < accept slower moves (more hits)
 IMPACT_COOLDOWN_SEC = 0.50    # > fewer duplicate hits; < allows repeated triggers quickly
 

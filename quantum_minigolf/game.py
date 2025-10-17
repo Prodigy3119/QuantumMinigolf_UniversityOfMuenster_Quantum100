@@ -698,9 +698,9 @@ class QuantumMiniGolfGame:
             x = px[0] / self.tracker_cfg.frame_width * self.Nx
             y = (1.0 - px[1] / self.tracker_cfg.frame_height) * self.Ny
             return self._apply_tracker_correction(float(x), float(y))
-        board_x, board_y = calibration.camera_to_board(px)
-        board_x = float(np.clip(board_x, 0.0, calibration.board_width))
-        board_y = float(np.clip(board_y, 0.0, calibration.board_height))
+        board_x_raw, board_y_raw = calibration.camera_to_board(px)
+        board_x = float(board_x_raw)
+        board_y = float(board_y_raw)
         scale_x = self.Nx / max(calibration.board_width, 1e-6)
         scale_y = self.Ny / max(calibration.board_height, 1e-6)
         game_x = float(board_x * scale_x)
@@ -721,18 +721,13 @@ class QuantumMiniGolfGame:
             return np.array([direction_px[0] * scale_x, -direction_px[1] * scale_y], dtype=float)
 
         origin_board_raw = calibration.camera_to_board(origin_px)
-        origin_board = (
-            float(np.clip(origin_board_raw[0], 0.0, calibration.board_width)),
-            float(np.clip(origin_board_raw[1], 0.0, calibration.board_height)),
-        )
         tip_px = (origin_px[0] + direction_px[0], origin_px[1] + direction_px[1])
         tip_board_raw = calibration.camera_to_board(tip_px)
-        tip_board = (
-            float(np.clip(tip_board_raw[0], 0.0, calibration.board_width)),
-            float(np.clip(tip_board_raw[1], 0.0, calibration.board_height)),
-        )
         delta_board = np.array(
-            [tip_board[0] - origin_board[0], tip_board[1] - origin_board[1]],
+            [
+                float(tip_board_raw[0] - origin_board_raw[0]),
+                float(tip_board_raw[1] - origin_board_raw[1]),
+            ],
             dtype=float,
         )
         scale_x = self.Nx / max(calibration.board_width, 1e-6)
@@ -746,8 +741,21 @@ class QuantumMiniGolfGame:
         if getattr(self, '_tracker_auto_scale', False):
             x = x * self._tracker_corr_scale_x + self._tracker_corr_offset_x
             y = y * self._tracker_corr_scale_y + self._tracker_corr_offset_y
-        x = float(min(max(x, 0.0), float(self.Nx)))
-        y = float(min(max(y, 0.0), float(self.Ny)))
+        calibration_present = bool(getattr(self.tracker_cfg, "calibration", None))
+        if calibration_present:
+            margin = float(max(0.0, getattr(self.cfg, 'tracker_coord_margin', 6.0)))
+            max_x = float(self.Nx + margin)
+            max_y = float(self.Ny + margin)
+            min_x = float(-margin)
+            min_y = float(-margin)
+        else:
+            margin = 0.0
+            max_x = float(self.Nx)
+            max_y = float(self.Ny)
+            min_x = 0.0
+            min_y = 0.0
+        x = float(min(max(x, min_x), max_x))
+        y = float(min(max(y, min_y), max_y))
         return x, y
 
     def _register_tracker_span(self, led_a_game: tuple[float, float], led_b_game: tuple[float, float]) -> None:

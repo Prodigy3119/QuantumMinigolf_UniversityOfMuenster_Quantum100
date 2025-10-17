@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Fixing tracking related issues">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -177,7 +177,28 @@
       <option name="project" value="LOCAL" />
       <updated>1760643015872</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="Changable course background with flag --background-path">
+      <created>1760699298352</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1760699298352</updated>
+    </task>
+    <task id="LOCAL-00017" summary="- Changable course background with flag --background-path&#10;- Print statement for screen and course sizes in px">
+      <created>1760703730434</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1760703730434</updated>
+    </task>
+    <task id="LOCAL-00018" summary="- Fixing tracking related issues">
+      <created>1760704819135</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1760704819135</updated>
+    </task>
+    <option name="localTasksCounter" value="19" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -203,6 +224,9 @@
     <MESSAGE value="- Improved golf club tracker overlay with reduced offset between virtual and physical tracker" />
     <MESSAGE value="Added flag &quot;--multiple-shots&quot; to tune the game from a hole in one game to a &quot;normal&quot; golf game" />
     <MESSAGE value="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag" />
-    <option name="LAST_COMMIT_MESSAGE" value="Added logging for some tracking/position related data if the game is run in vr mode and with the logging flag" />
+    <MESSAGE value="Changable course background with flag --background-path" />
+    <MESSAGE value="- Changable course background with flag --background-path&#10;- Print statement for screen and course sizes in px" />
+    <MESSAGE value="- Fixing tracking related issues" />
+    <option name="LAST_COMMIT_MESSAGE" value="- Fixing tracking related issues" />
   </component>
 </project>
