@@ -125,7 +125,7 @@ class GameConfig:
     tracker_calibration_path: Optional[str] = None
     show_control_panel: bool = True
 
-    tracker_auto_scale: bool = True
+    tracker_auto_scale: bool = False
     tracker_max_span_px: float = 220.0
 
     # Time limit per shot (simulation seconds); None = no limit
@@ -146,6 +146,10 @@ class GameConfig:
     sigma0: float = 5.0
     perf_sigma0: float = 3.5
     perf_steps_factor: float = 0.6
+
+    background_image_path: Optional[str] = None
+    background_image_alpha: float = 1.0
+    wave_overlay_alpha: float = 0.95
 
     # Performance flags
     flags: PerformanceFlags = field(default_factory=PerformanceFlags)

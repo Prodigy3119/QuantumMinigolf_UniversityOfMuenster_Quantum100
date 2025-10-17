@@ -6,6 +6,8 @@ import matplotlib.patheffects as pe
 from matplotlib.patches import Rectangle, Circle, Ellipse, Polygon
 from matplotlib.collections import PatchCollection
 from matplotlib.lines import Line2D
+import matplotlib.image as mpimg
+from pathlib import Path
 
 
 class Visuals:
@@ -28,6 +30,34 @@ class Visuals:
         self.ax.set_ylim(0, Ny)
         self.ax.set_xticks([]); self.ax.set_yticks([])
 
+        bg_path = getattr(cfg, 'background_image_path', None)
+        self.bg_im = None
+        if bg_path:
+            candidate = Path(str(bg_path)).expanduser()
+            if not candidate.is_absolute():
+                candidate = Path.cwd() / candidate
+            if not candidate.exists():
+                module_candidate = Path(__file__).resolve().parent / str(bg_path)
+                candidate = module_candidate if module_candidate.exists() else None
+            if candidate and candidate.exists():
+                try:
+                    bg = mpimg.imread(candidate)
+                    self.bg_im = self.ax.imshow(
+                        bg,
+                        origin='lower',
+                        extent=[0, Nx, 0, Ny],
+                        interpolation=str(getattr(cfg, "vis_interpolation", "bilinear")),
+                        zorder=-10,
+                        animated=False,
+                    )
+                    self.bg_im.set_alpha(float(getattr(cfg, 'background_image_alpha', 1.0)))
+                    print(f"[info] background image loaded from '{candidate}'")
+                except Exception as exc:
+                    print(f"[warn] could not load background image '{candidate}': {exc}")
+            else:
+                print(f"[info] background image not found ('{bg_path}'); using default background")
+        background_loaded = self.bg_im is not None
+
         animated = bool(flags.blitting)
         interp = 'nearest' if flags.pixel_upscale else str(getattr(cfg, "vis_interpolation", "bilinear"))
 
@@ -37,11 +67,17 @@ class Visuals:
         self._wave_norm_range = max(self.wave_vmax - self.wave_vmin, 1e-6)
         cmap = plt.get_cmap('magma', 256)
         lut = (cmap(np.linspace(0.0, 1.0, 256)) * 255.0).astype(np.uint8)
-        lut[:, 3] = 255  # enforce opaque alpha
+        if background_loaded:
+            alpha_curve = np.linspace(0.0, 1.0, 256, dtype=np.float32)
+            alpha_vals = np.clip((alpha_curve ** 0.55) * 255.0, 0.0, 255.0).astype(np.uint8)
+            alpha_vals[0] = 0
+            lut[:, 3] = alpha_vals
+        else:
+            lut[:, 3] = 255  # enforce opaque alpha
         self._cmap_lut = lut
         self._cmap_lut_gpu = {}
         init_rgba = np.zeros((Ny, Nx, 4), dtype=np.uint8)
-        init_rgba[..., 3] = 255
+        init_rgba[..., 3] = 0 if background_loaded else 255
         self._frame_rgba = init_rgba
         self.im = self.ax.imshow(
             init_rgba,
@@ -49,7 +85,10 @@ class Visuals:
             interpolation=interp, animated=animated
         )
         self.im.set_zorder(0)
-        self.im.set_alpha(0.95)
+        overlay_default = 0.65 if background_loaded else 0.95
+        overlay_alpha = float(getattr(cfg, 'wave_overlay_alpha', overlay_default))
+        overlay_alpha = float(min(max(overlay_alpha, 0.0), 1.0))
+        self.im.set_alpha(overlay_alpha)
         if flags.pixel_upscale:
             try:
                 self.im.set_resample(False)

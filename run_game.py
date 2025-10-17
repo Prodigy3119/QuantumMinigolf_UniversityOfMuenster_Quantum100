@@ -289,6 +289,8 @@ def build_config(args):
         cfg.tracker_calibration_path = str(Path(args.calibration_path).expanduser())
     if args.mouse_swing:
         cfg.enable_mouse_swing = True
+    if getattr(args, "background_path", None):
+        cfg.background_image_path = str(Path(args.background_path).expanduser())
     if args.no_control_panel:
         cfg.show_control_panel = False
     elif args.config_panel:
@@ -347,6 +349,7 @@ def parse_args():
     parser.add_argument('--mouse-swing', action='store_true', help='Enable mouse swing control')
     parser.add_argument('--multiple-shots', action='store_true', help='Allow consecutive shots and track attempts')
     parser.add_argument('--log-data', action='store_true', help='Record VR debug telemetry to vr_debug_log.txt')
+    parser.add_argument('--background-path', type=str, help='Load a custom course background image')
     parser.add_argument('--no-tracker-auto-scale', action='store_true', help='Disable automatic tracker scaling correction')
     parser.add_argument('--tracker-max-span', type=float, help='Maximum LED span in pixels before rejecting tracker frames')
     parser.add_argument('--config-panel', action='store_true', help='Force the control panel window to open on start')

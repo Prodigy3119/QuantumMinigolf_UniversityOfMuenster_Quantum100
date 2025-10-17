@@ -23,6 +23,11 @@ from .physics import (
 )
 from .visuals import Visuals
 
+try:  # Matplotlib Qt helper (available when using QtAgg backend)
+    from matplotlib.backends.qt_compat import QtWidgets  # type: ignore
+except Exception:  # pragma: no cover - backend specific
+    QtWidgets = None  # type: ignore
+
 
 class QuantumMiniGolfGame:
     def __init__(self, cfg: GameConfig):
@@ -94,6 +99,7 @@ class QuantumMiniGolfGame:
         self._debug_prev_tracker: dict[str, object] = {"center": None, "time": None}
         self._debug_session_started = False
         self._debug_log_write_failed = False
+        self._display_info_timer = None
         if bool(getattr(self.cfg, 'enable_mouse_swing', False)):
             self._set_tracker_force_disabled(True)
         if getattr(self.cfg, 'use_tracker', False):
@@ -206,6 +212,8 @@ class QuantumMiniGolfGame:
         # direct multiplier applied to post-shot motion
         self._movement_speed_factor = float(max(self._movement_slider_bounds[0], getattr(cfg, 'movement_speed_scale', 1.0)))
         self._apply_movement_speed_tuning(initial=True)
+
+        self._log_startup_display_info()
 
         # mode management
         self._base_plot_ball = bool(self.cfg.PlotBall)
@@ -541,6 +549,118 @@ class QuantumMiniGolfGame:
         self.mode = self._mode_cycle[self._mode_index]
         self._apply_mode_settings()
 
+    def _log_startup_display_info(self, force: bool = False) -> None:
+        if not force and getattr(self, "_startup_info_logged", False):
+            return
+        self._startup_info_logged = True
+
+        tracker_cfg = self.tracker_cfg
+        camera_line = "tracker camera frame: unavailable"
+        cfg_line = "tracker cfg: unavailable"
+        if tracker_cfg is not None:
+            frame_w = getattr(tracker_cfg, "frame_width", None)
+            frame_h = getattr(tracker_cfg, "frame_height", None)
+            if frame_w and frame_h:
+                camera_line = f"tracker camera frame: {int(frame_w)} x {int(frame_h)} px"
+            crop_vals = (
+                getattr(tracker_cfg, "crop_x1", None),
+                getattr(tracker_cfg, "crop_x2", None),
+                getattr(tracker_cfg, "crop_y1", None),
+                getattr(tracker_cfg, "crop_y2", None),
+            )
+            if all(v is not None for v in crop_vals):
+                cx1, cx2, cy1, cy2 = (int(v) for v in crop_vals)  # type: ignore[arg-type]
+                roi_w = max(0, cx2 - cx1)
+                roi_h = max(0, cy2 - cy1)
+                if roi_w > 0 and roi_h > 0:
+                    cfg_line = f"tracker cfg: {roi_w} x {roi_h} px (ROI)"
+                elif frame_w and frame_h:
+                    cfg_line = f"tracker cfg: {int(frame_w)} x {int(frame_h)} px (full frame)"
+            elif frame_w and frame_h:
+                cfg_line = f"tracker cfg: {int(frame_w)} x {int(frame_h)} px (full frame)"
+
+        try:
+            canvas_w, canvas_h = self.viz.fig.canvas.get_width_height()
+            course_line = f"course window: {int(canvas_w)} x {int(canvas_h)} px"
+        except Exception:
+            course_line = "course window: unavailable"
+
+        screen_lines: list[str] = []
+        if QtWidgets is not None:
+            app = QtWidgets.QApplication.instance()  # type: ignore[attr-defined]
+            if app is not None:
+                try:
+                    screens = app.screens()
+                except Exception:
+                    screens = []
+                for idx, screen in enumerate(screens, start=1):
+                    try:
+                        geometry = screen.geometry()
+                        width = int(getattr(geometry, "width")())
+                        height = int(getattr(geometry, "height")())
+                    except Exception:
+                        try:
+                            size = screen.size()
+                            width = int(getattr(size, "width")())
+                            height = int(getattr(size, "height")())
+                        except Exception:
+                            width = height = -1
+                    if width > 0 and height > 0:
+                        screen_lines.append(f"screen {idx}: {width} x {height} px")
+        if not screen_lines:
+            try:
+                import tkinter as tk  # type: ignore
+            except Exception:
+                tk = None  # type: ignore
+            if tk is not None:
+                root = None
+                try:
+                    root = tk.Tk()
+                    root.withdraw()
+                    width = int(root.winfo_screenwidth())
+                    height = int(root.winfo_screenheight())
+                    screen_lines.append(f"screen 1: {width} x {height} px")
+                except Exception:
+                    pass
+                finally:
+                    if root is not None:
+                        try:
+                            root.destroy()
+                        except Exception:
+                            pass
+        if not screen_lines:
+            screen_lines.append("screen 1: unavailable")
+
+        print(camera_line)
+        print(course_line)
+        for line in screen_lines:
+            print(line)
+        print(cfg_line)
+
+    def _schedule_display_info_refresh(self) -> None:
+        canvas = getattr(self.viz, "fig", None)
+        if canvas is None:
+            self._log_startup_display_info(force=True)
+            return
+        try:
+            timer = self.viz.fig.canvas.new_timer(interval=150)
+        except Exception:
+            self._log_startup_display_info(force=True)
+            return
+        if hasattr(timer, "single_shot"):
+            try:
+                timer.single_shot = True  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        if self._display_info_timer is not None:
+            try:
+                self._display_info_timer.stop()
+            except Exception:
+                pass
+        timer.add_callback(self._log_startup_display_info, True)
+        self._display_info_timer = timer
+        timer.start()
+
     def _start_tracker_poll(self):
         if not self.tracker:
             return
@@ -873,6 +993,9 @@ class QuantumMiniGolfGame:
         key = (e.key or "").lower()
         if key == 'q':
             plt.close(self.viz.fig)
+        elif key == 'f':
+            self._log_startup_display_info(force=True)
+            self._schedule_display_info_refresh()
         elif key == 'r':
             if not self._restore_normal_state():
                 self._reset()
