@@ -143,8 +143,11 @@ class Course:
         else:
             raise ValueError(f"Unknown map kind: {kind}")
 
-        self.V = self.be.to_xp(V, np.float32)
-        self.W_absorb = self.be.to_xp(self._build_absorber(), np.float32)
+        self.V_cpu = V.astype(np.float32, copy=True)
+        absorber = self._build_absorber()
+        self.W_absorb_cpu = absorber.astype(np.float32, copy=True)
+        self.V = self.be.to_xp(self.V_cpu, np.float32)
+        self.W_absorb = self.be.to_xp(self.W_absorb_cpu, np.float32)
         self.course_patches = patches
         self.solid_rects = solids
 
@@ -154,12 +157,23 @@ class Course:
 
         # Combined operator used for dynamic dt scaling
         self.V_operator = ((-1j * self.V) - self.W_absorb).astype(np.complex64)
+        self.V_operator_cpu = ((-1j * self.V_cpu) - self.W_absorb_cpu).astype(np.complex64)
+
+        obstacle_mask = (self.V_cpu > (0.5 * max(1e-6, float(self.cfg.V_wall)))).astype(np.float32)
+        self.obstacle_mask_cpu = obstacle_mask
+        self.obstacle_mask = self.be.to_xp(obstacle_mask, np.float32)
+        self.max_potential = float(np.max(np.abs(self.V_cpu))) if self.V_cpu.size else 0.0
+        self.max_absorber = float(np.max(self.W_absorb_cpu)) if self.W_absorb_cpu.size else 0.0
+        self._last_dt: float | None = None
 
     def update_exponents(self, dt: float, k2, dtype):
+        if self._last_dt is not None and abs(self._last_dt - dt) <= 1e-12:
+            return
         # expV_half = exp(((-iV) - W) * dt/2), expK = exp(-i k^2 dt / 2)
         xp = self.be.xp
         self.expV_half = xp.exp(((-1j * self.V) - self.W_absorb) * (dt * 0.5)).astype(dtype)
         self.expK = xp.exp((-1j * k2 * dt / 2.0).astype(dtype)).astype(dtype)
+        self._last_dt = dt
 
     def _apply_single_wall(self, V: np.ndarray, cx: int, Ny: int):
         thickness = float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 5.0))

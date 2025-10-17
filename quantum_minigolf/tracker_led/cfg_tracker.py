@@ -68,4 +68,4 @@ USE_GPU_FILTERING       = False   # If CuPy is available, use GPU threshold/blur
 
 
 # Overlay refresh decimation (NEW)
-OVERLAY_UPDATE_EVERY = 2      # draw overlay every N frames (1 = every frame)
+OVERLAY_UPDATE_EVERY = 2      # draw overlay every N frames (1 = every frame)#

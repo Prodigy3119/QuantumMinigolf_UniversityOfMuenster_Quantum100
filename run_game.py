@@ -245,6 +245,14 @@ def build_config(args):
         flags=flags,
     )
 
+    cfg.performance_increase = bool(getattr(args, "performance_increase", False))
+    cfg.fast_mode_paraxial = bool(getattr(args, "fast_mode_paraxial", False) and cfg.performance_increase)
+
+    if cfg.performance_increase:
+        os.environ.setdefault("QUANTUM_MINIGOLF_PERF", "1")
+        if "QUANTUM_MINIGOLF_BACKEND" not in os.environ:
+            os.environ["QUANTUM_MINIGOLF_BACKEND"] = "gpu"
+
     if args.map:
         cfg.map_kind = args.map
     if args.wave_profile:
@@ -305,6 +313,22 @@ def build_config(args):
     if getattr(args, "tracker_max_span", None) is not None:
         cfg.tracker_max_span_px = max(1.0, float(args.tracker_max_span))
 
+    if cfg.performance_increase:
+        if args.res_scale is None:
+            cfg.res_scale = min(cfg.res_scale, float(getattr(cfg, 'performance_res_scale', 0.5)))
+        cfg.flags.gpu_viz = True
+        cfg.flags.adaptive_draw = True
+        cfg.flags.display_downsample = True
+        if args.draw_every is None:
+            cfg.draw_every = max(cfg.draw_every, int(getattr(cfg, 'performance_draw_every', 3)))
+        cfg.display_downsample_factor = max(
+            cfg.display_downsample_factor,
+            int(getattr(cfg, 'performance_display_downsample', 2)),
+        )
+        if getattr(cfg, 'performance_smooth_passes', 0) is not None:
+            cfg.smooth_passes = int(getattr(cfg, 'performance_smooth_passes', 0))
+        cfg.performance_enable_window = True
+
     if args.vr is not None:
         if args.vr:
             cfg.enable_mouse_swing = False
@@ -350,6 +374,8 @@ def parse_args():
     parser.add_argument('--multiple-shots', action='store_true', help='Allow consecutive shots and track attempts')
     parser.add_argument('--log-data', action='store_true', help='Record VR debug telemetry to vr_debug_log.txt')
     parser.add_argument('--background-path', type=str, help='Load a custom course background image')
+    parser.add_argument('--performance-increase', action='store_true', help='Enable experimental performance optimisations')
+    parser.add_argument('--fast-mode-paraxial', action='store_true', help='Approximate paraxial fast mode (requires --performance-increase)')
     parser.add_argument('--no-tracker-auto-scale', action='store_true', help='Disable automatic tracker scaling correction')
     parser.add_argument('--tracker-max-span', type=float, help='Maximum LED span in pixels before rejecting tracker frames')
     parser.add_argument('--config-panel', action='store_true', help='Force the control panel window to open on start')

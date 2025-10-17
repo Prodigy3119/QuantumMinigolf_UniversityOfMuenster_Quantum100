@@ -32,9 +32,27 @@ except Exception:  # pragma: no cover - backend specific
 class QuantumMiniGolfGame:
     def __init__(self, cfg: GameConfig):
         self.cfg = cfg
+        self._perf_enabled = bool(getattr(self.cfg, 'performance_increase', False))
         self.be = Backend()
         if self.be.USE_GPU:
             self.cfg.flags.gpu_viz = True
+        self._performance_theta = float(getattr(self.cfg, 'performance_theta', 0.6 * math.pi))
+        self._dt_tolerance = float(max(1e-9, getattr(self.cfg, 'performance_dt_tolerance', 1e-6)))
+        self._perf_drift_threshold = float(max(0.0, getattr(self.cfg, 'performance_drift_threshold', 1e-5)))
+        self._perf_max_drift_steps = int(max(1, getattr(self.cfg, 'performance_max_drift_steps', 4)))
+        self._perf_fft_plan_cache: dict[tuple[tuple[int, ...], str], object] = {}
+        self._perf_expK_powers: dict[int, object] = {}
+        self._perf_drift_fail_logged = False
+        self._perf_window_fail_logged = False
+        self._perf_dt_fail_logged = False
+        self._perf_fast_mode_logged = False
+        self._perf_fft_plan_fail_logged = False
+        self._perf_friction_expV = None
+        self._perf_friction_expK = None
+        self._perf_friction_scales = None
+        if self.cfg.fast_mode_paraxial and not self._perf_enabled:
+            print("[perf] fast-mode-paraxial requires --performance-increase; ignoring.")
+            self.cfg.fast_mode_paraxial = False
 
         # numeric dtypes & grids
         self.f32 = np.float32
@@ -47,6 +65,7 @@ class QuantumMiniGolfGame:
         # k-space (CPU -> XP)
         self.k2, self.k_max = self.be.build_kgrid(
             self.Nx, self.Ny, cfg.dx, cfg.dy)
+        self._k2_cpu_max = float(np.max(self.be.to_cpu(self.k2))) if self.k2.size else 0.0
 
         # grids for expectations
         Xc, Yc = np.meshgrid(np.arange(self.Nx, dtype=np.float32),
@@ -55,7 +74,15 @@ class QuantumMiniGolfGame:
         self.Ygrid = self.be.to_xp(Yc, np.float32)
 
         # exponents for current dt
-        self.course.update_exponents(cfg.dt, self.k2, self.c64)
+        self._current_exp_dt: float | None = None
+        self._ensure_exponents(cfg.dt, force=True)
+        self._perf_window_enabled = bool(self._perf_enabled and getattr(self.cfg, 'performance_enable_window', False))
+        self._perf_window_margin = int(max(4, getattr(self.cfg, 'performance_window_margin', 12)))
+        self._max_combined_potential = float(
+            getattr(self.course, 'max_potential', 0.0) + getattr(self.course, 'max_absorber', 0.0)
+        )
+        self._obstacle_mask = getattr(self.course, 'obstacle_mask', None)
+        self._obstacle_mask_cpu = getattr(self.course, 'obstacle_mask_cpu', None)
 
         # positions
         start_x = int(
@@ -194,8 +221,9 @@ class QuantumMiniGolfGame:
         self.path_decim = int(max(1, self.cfg.path_decimation_stride))
 
         # perf-mode values (you can expose a toggle later)
-        self.perf_mode = False
-        self.perf_draw_every = max(1, int(self.cfg.draw_every * 2))
+        self.perf_mode = bool(self._perf_enabled)
+        perf_draw_base = max(self.cfg.draw_every, int(getattr(self.cfg, 'performance_draw_every', 3)))
+        self.perf_draw_every = max(1, int(perf_draw_base))
         self.base_steps_per_shot = self.cfg.steps_per_shot
         self.base_draw_every = self.cfg.draw_every
 
@@ -212,6 +240,7 @@ class QuantumMiniGolfGame:
         # direct multiplier applied to post-shot motion
         self._movement_speed_factor = float(max(self._movement_slider_bounds[0], getattr(cfg, 'movement_speed_scale', 1.0)))
         self._apply_movement_speed_tuning(initial=True)
+        self._init_performance_helpers()
 
         self._log_startup_display_info()
 
@@ -660,6 +689,124 @@ class QuantumMiniGolfGame:
         timer.add_callback(self._log_startup_display_info, True)
         self._display_info_timer = timer
         timer.start()
+
+    def _ensure_exponents(self, dt: float, force: bool = False) -> None:
+        dt = float(dt)
+        if force or self._current_exp_dt is None or abs(self._current_exp_dt - dt) > self._dt_tolerance:
+            self.course.update_exponents(dt, self.k2, self.c64)
+            self._current_exp_dt = dt
+            if self._perf_enabled:
+                self._perf_expK_powers.clear()
+
+    def _compute_phase_dt(self) -> float:
+        denom = max(self._max_combined_potential, 0.5 * self._k2_cpu_max, 1e-6)
+        return self._performance_theta / denom
+
+    def _ensure_fft_plan(self, psi):
+        if not (self._perf_enabled and self.be.USE_GPU and self.be.cp is not None):
+            return None
+        cp = self.be.cp
+        key = (tuple(int(v) for v in psi.shape), str(psi.dtype))
+        plan = self._perf_fft_plan_cache.get(key)
+        if plan is None:
+            try:
+                plan = cp.fft.config.get_plan(psi)
+                self._perf_fft_plan_cache[key] = plan
+            except Exception as exc:
+                if not self._perf_fft_plan_fail_logged:
+                    print(f"[perf] Unable to cache cuFFT plan, falling back to default transforms: {exc}")
+                    self._perf_fft_plan_fail_logged = True
+                return None
+        return plan
+
+    def _get_expK_power(self, base_expK, m: int):
+        val = self._perf_expK_powers.get(m)
+        if val is None:
+            xp = self.be.xp
+            try:
+                val = xp.power(base_expK, m).astype(self.c64, copy=False)
+            except Exception:
+                val = xp.power(base_expK, m)
+            self._perf_expK_powers[m] = val
+        return val
+
+    def _build_friction_lookup(self, base_expV_half, base_expK, dt_eff, xp):
+        bins = int(max(2, getattr(self.cfg, 'performance_friction_bins', 32)))
+        scales = np.linspace(0.0, 1.0, bins, dtype=np.float32)
+        expV_list = []
+        expK_list = []
+        V_operator = getattr(self.course, 'V_operator', None)
+        if V_operator is None:
+            self._perf_friction_expV = None
+            self._perf_friction_expK = None
+            self._perf_friction_scales = None
+            return
+        for s in scales:
+            if s >= 1.0 - 1e-6:
+                expV_list.append(base_expV_half)
+                expK_list.append(base_expK)
+            elif s <= 1e-6:
+                expV_list.append(xp.ones_like(base_expV_half, dtype=self.c64))
+                expK_list.append(xp.ones_like(base_expK, dtype=self.c64))
+            else:
+                half_dt = dt_eff * float(s) * 0.5
+                expV = xp.exp(V_operator * half_dt).astype(self.c64, copy=False)
+                expK_scaled = xp.exp((-1j * self.k2 * dt_eff * float(s) / 2.0).astype(self.c64)).astype(self.c64, copy=False)
+                expV_list.append(expV)
+                expK_list.append(expK_scaled)
+        self._perf_friction_expV = expV_list
+        self._perf_friction_expK = expK_list
+        self._perf_friction_scales = scales
+
+    def _lookup_friction_index(self, scale: float) -> int:
+        if self._perf_friction_scales is None:
+            return 0
+        bins = len(self._perf_friction_scales)
+        if bins <= 1:
+            return 0
+        idx = int(round(float(scale) * (bins - 1)))
+        return min(max(idx, 0), bins - 1)
+
+    def _maybe_burst_drift(self, psi, base_expK, dt_eff, steps_remaining, plan):
+        if not self._perf_enabled or self._perf_drift_threshold <= 0.0:
+            return psi, 1
+        if self._obstacle_mask is None:
+            if not self._perf_drift_fail_logged:
+                print("[perf] Obstacle mask unavailable; skipping burst drift optimisation.")
+                self._perf_drift_fail_logged = True
+            return psi, 1
+        xp = self.be.xp
+        dens = xp.abs(psi) ** 2
+        overlap = xp.sum(dens * self._obstacle_mask)
+        overlap_val = float(self.be.to_cpu(overlap))
+        if overlap_val >= self._perf_drift_threshold:
+            return psi, 1
+        m = min(self._perf_max_drift_steps, steps_remaining)
+        if m <= 1:
+            return psi, 1
+        expK_power = self._get_expK_power(base_expK, m)
+        if plan is not None and self.be.USE_GPU:
+            with plan:
+                psi_k = self.be.fft2(psi)
+                psi_k *= expK_power
+                psi = self.be.ifft2(psi_k)
+        else:
+            psi_k = self.be.fft2(psi)
+            psi_k *= expK_power
+            psi = self.be.ifft2(psi_k)
+        psi = psi.astype(self.c64, copy=False)
+        return psi, m
+
+    def _init_performance_helpers(self) -> None:
+        if not self._perf_enabled:
+            return
+        if self._perf_window_enabled:
+            print("[perf] moving window optimisation not yet available; using full-grid evolution.")
+            self._perf_window_enabled = False
+        if getattr(self.cfg, 'fast_mode_paraxial', False) and not self._perf_fast_mode_logged:
+            print("[perf] fast-mode-paraxial not implemented; falling back to split-step propagation.")
+            self._perf_fast_mode_logged = True
+            self.cfg.fast_mode_paraxial = False
 
     def _start_tracker_poll(self):
         if not self.tracker:
@@ -2294,7 +2441,15 @@ class QuantumMiniGolfGame:
         old_dt = self.cfg.dt
         movement_factor = float(max(0.1, getattr(self, '_movement_speed_factor', 1.0)))
         speed_boost = movement_factor
-        dt_eff = old_dt
+        dt_eff = float(old_dt)
+        if self._perf_enabled:
+            try:
+                dt_budget = self._compute_phase_dt()
+                dt_eff = float(min(dt_eff, dt_budget))
+            except Exception as exc:
+                if not self._perf_dt_fail_logged:
+                    print(f"[perf] Failed computing phase-budget dt; using fallback: {exc}")
+                    self._perf_dt_fail_logged = True
 
         simulate_classical = self._mode_allows_classical()
         simulate_wave = self._mode_allows_quantum()
@@ -2320,7 +2475,7 @@ class QuantumMiniGolfGame:
         self._wavefront_active = self._wavefront_profile == 'front' and simulate_wave
 
         # temp exponents for this shot
-        self.course.update_exponents(dt_eff, self.k2, self.c64)
+        self._ensure_exponents(dt_eff)
 
         try:
             sunk_prob = 0.0
@@ -2359,12 +2514,17 @@ class QuantumMiniGolfGame:
             xp = self.be.xp if simulate_wave else None
             base_expV_half = self.course.expV_half
             base_expK = self.course.expK
+            use_friction_lut = False
             V_operator_cache = tmp_v_operator = k2_cache = tmp_k2 = None
             if simulate_wave and friction_mode:
-                V_operator_cache = self.course.V_operator.astype(self.c64, copy=False)
-                k2_cache = (-1j * self.k2).astype(self.c64, copy=False)
-                tmp_v_operator = xp.empty_like(V_operator_cache, dtype=self.c64)
-                tmp_k2 = xp.empty_like(k2_cache, dtype=self.c64)
+                if self._perf_enabled:
+                    self._build_friction_lookup(base_expV_half, base_expK, dt_eff, xp)
+                    use_friction_lut = self._perf_friction_expV is not None
+                if not use_friction_lut:
+                    V_operator_cache = self.course.V_operator.astype(self.c64, copy=False)
+                    k2_cache = (-1j * self.k2).astype(self.c64, copy=False)
+                    tmp_v_operator = xp.empty_like(V_operator_cache, dtype=self.c64)
+                    tmp_k2 = xp.empty_like(k2_cache, dtype=self.c64)
 
             friction_prev_scale = 1.0
             friction_stop_flag = False
@@ -2379,6 +2539,7 @@ class QuantumMiniGolfGame:
             psi = None
             wave_xs = []
             wave_ys = []
+            fft_plan = None
 
             if simulate_wave:
                 X = np.arange(self.Nx, dtype=np.float32)
@@ -2424,8 +2585,10 @@ class QuantumMiniGolfGame:
                     np.complex64) * self.be.to_xp(plane, np.complex64)
                 psi /= xp.sqrt(xp.sum(xp.abs(psi) ** 2) + 1e-12)
                 psi = self.course.apply_edge_boundary(psi)
+                fft_plan = self._ensure_fft_plan(psi) if self._perf_enabled else None
             else:
                 Xg = Yg = None
+                fft_plan = None
 
             if simulate_classical:
                 x0, y0 = self.ball_pos
@@ -2451,7 +2614,8 @@ class QuantumMiniGolfGame:
             renorm_every = 40
             abort_reason = None  # "time" or "hole"
 
-            for n in range(steps):
+            n = 0
+            while n < steps:
                 if friction_mode:
                     speed_scale = self._friction_speed_scale(n, steps, friction_coeffs)
                     speed_scale = max(0.0, speed_scale)
@@ -2462,26 +2626,45 @@ class QuantumMiniGolfGame:
                     self._wavefront_kmag = kmag * speed_scale
 
                 if simulate_wave:
+                    if self._perf_enabled and not friction_mode:
+                        psi, consumed = self._maybe_burst_drift(psi, base_expK, dt_eff, steps - n, fft_plan)
+                        if consumed > 1:
+                            psi = self.course.apply_edge_boundary(psi)
+                            n += consumed
+                            continue
                     if friction_mode:
-                        dt_local = dt_eff * float(speed_scale)
-                        if speed_scale >= 1.0 - 1e-6:
-                            expV_half_eff = base_expV_half
-                            expK_eff = base_expK
+                        if use_friction_lut:
+                            idx = self._lookup_friction_index(speed_scale)
+                            expV_half_eff = self._perf_friction_expV[idx]
+                            expK_eff = self._perf_friction_expK[idx]
                         else:
-                            half_dt = dt_local * 0.5
-                            xp.multiply(V_operator_cache, half_dt, out=tmp_v_operator)
-                            xp.exp(tmp_v_operator, out=tmp_v_operator)
-                            xp.multiply(k2_cache, half_dt, out=tmp_k2)
-                            xp.exp(tmp_k2, out=tmp_k2)
-                            expV_half_eff = tmp_v_operator
-                            expK_eff = tmp_k2
+                            dt_local = dt_eff * float(speed_scale)
+                            if speed_scale >= 1.0 - 1e-6:
+                                expV_half_eff = base_expV_half
+                                expK_eff = base_expK
+                            else:
+                                half_dt = dt_local * 0.5
+                                xp.multiply(V_operator_cache, half_dt, out=tmp_v_operator)
+                                xp.exp(tmp_v_operator, out=tmp_v_operator)
+                                xp.multiply(k2_cache, half_dt, out=tmp_k2)
+                                xp.exp(tmp_k2, out=tmp_k2)
+                                expV_half_eff = tmp_v_operator
+                                expK_eff = tmp_k2
                     else:
                         expV_half_eff = base_expV_half
                         expK_eff = base_expK
 
                     if not (friction_mode and speed_scale <= friction_min_scale):
-                        psi = step_wave(psi, expV_half_eff, expK_eff, self.be.fft2, self.be.ifft2,
-                                        inplace=self.cfg.flags.inplace_step)
+                        plan_ctx = fft_plan if (self._perf_enabled and self.be.USE_GPU) else None
+                        psi = step_wave(
+                            psi,
+                            expV_half_eff,
+                            expK_eff,
+                            self.be.fft2,
+                            self.be.ifft2,
+                            inplace=self.cfg.flags.inplace_step,
+                            plan=plan_ctx,
+                        )
                     psi = self.course.apply_edge_boundary(psi)
 
                 if simulate_classical:
@@ -2626,6 +2809,8 @@ class QuantumMiniGolfGame:
 
                 if not self.cfg.flags.blitting:
                     plt.pause(0.0001)
+
+                n += 1
 
             if simulate_wave:
                 self._last_density_cpu = self.be.to_cpu(

@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -151,6 +152,21 @@ class GameConfig:
     background_image_path: Optional[str] = None
     background_image_alpha: float = 1.0
     wave_overlay_alpha: float = 0.95
+
+    # Performance / tuning toggles
+    performance_increase: bool = False
+    fast_mode_paraxial: bool = False
+    performance_theta: float = 0.6 * math.pi
+    performance_dt_tolerance: float = 1e-6
+    performance_friction_bins: int = 32
+    performance_res_scale: float = 0.5
+    performance_display_downsample: int = 2
+    performance_smooth_passes: int = 0
+    performance_draw_every: int = 3
+    performance_drift_threshold: float = 1e-5
+    performance_max_drift_steps: int = 4
+    performance_enable_window: bool = False
+    performance_window_margin: int = 12
 
     # Performance flags
     flags: PerformanceFlags = field(default_factory=PerformanceFlags)

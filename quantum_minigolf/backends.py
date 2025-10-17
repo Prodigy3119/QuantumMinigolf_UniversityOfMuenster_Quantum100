@@ -70,6 +70,8 @@ class Backend:
         self.fft2 = None
         self.ifft2 = None
         self._gpu_fail_reason = None
+        self._fftw_forward_cache = {}
+        self._fftw_inverse_cache = {}
         self._select_backend()
         print(f"Using GPU: {self.USE_GPU}  |  Backend: {self.backend_name}")
         if not self.USE_GPU and self._gpu_fail_reason:
@@ -84,6 +86,8 @@ class Backend:
         force_gpu = mode == "gpu"
         if mode == "cpu":
             self._gpu_fail_reason = "forced to CPU via QUANTUM_MINIGOLF_BACKEND"
+
+        perf_mode = os.environ.get("QUANTUM_MINIGOLF_PERF", "") == "1"
 
         # 1) Try CuPy (must pass alloc + cuFFT + NVRTC/JIT)
         if allow_gpu:
@@ -122,32 +126,80 @@ class Backend:
         # 2) PyFFTW (CPU, fast)
         try:
             import pyfftw  # type: ignore
-            from pyfftw.interfaces.numpy_fft import fft2 as _fftw_fft2, ifft2 as _fftw_ifft2
             pyfftw.interfaces.cache.enable()
             _threads = max(1, (os.cpu_count() or 4) - 1)
+            planner_flags = ('FFTW_MEASURE',)
 
-            def fft2(a):   return _fftw_fft2(a, threads=_threads)
-            def ifft2(a):  return _fftw_ifft2(a, threads=_threads)
+            if perf_mode:
+                def _fftw_forward(a):
+                    arr = np.asarray(a, dtype=a.dtype, order='C')
+                    key = (arr.shape, arr.dtype)
+                    plan = self._fftw_forward_cache.get(key)
+                    if plan is None:
+                        in_array = pyfftw.empty_aligned(arr.shape, dtype=arr.dtype)
+                        out_array = pyfftw.empty_aligned(arr.shape, dtype=arr.dtype)
+                        plan_obj = pyfftw.FFTW(
+                            in_array, out_array,
+                            axes=(0, 1),
+                            direction='FFTW_FORWARD',
+                            threads=_threads,
+                            flags=planner_flags,
+                        )
+                        self._fftw_forward_cache[key] = (plan_obj, in_array, out_array)
+                        plan = self._fftw_forward_cache[key]
+                    plan_obj, in_array, out_array = plan
+                    np.copyto(in_array, arr, casting='unsafe')
+                    plan_obj()
+                    return out_array.copy()
 
-            self.fft2, self.ifft2 = fft2, ifft2
+                def _fftw_inverse(a):
+                    arr = np.asarray(a, dtype=a.dtype, order='C')
+                    key = (arr.shape, arr.dtype)
+                    plan = self._fftw_inverse_cache.get(key)
+                    if plan is None:
+                        in_array = pyfftw.empty_aligned(arr.shape, dtype=arr.dtype)
+                        out_array = pyfftw.empty_aligned(arr.shape, dtype=arr.dtype)
+                        plan_obj = pyfftw.FFTW(
+                            in_array, out_array,
+                            axes=(0, 1),
+                            direction='FFTW_BACKWARD',
+                            threads=_threads,
+                            flags=planner_flags,
+                        )
+                        self._fftw_inverse_cache[key] = (plan_obj, in_array, out_array)
+                        plan = self._fftw_inverse_cache[key]
+                    plan_obj, in_array, out_array = plan
+                    np.copyto(in_array, arr, casting='unsafe')
+                    plan_obj()
+                    return out_array.copy()
+
+                self.fft2, self.ifft2 = _fftw_forward, _fftw_inverse
+            else:
+                from pyfftw.interfaces.numpy_fft import fft2 as _fftw_fft2, ifft2 as _fftw_ifft2
+
+                def fft2(a):   return _fftw_fft2(a, threads=_threads)
+                def ifft2(a):  return _fftw_ifft2(a, threads=_threads)
+
+                self.fft2, self.ifft2 = fft2, ifft2
             self.backend_name = f"pyFFTW (CPU, threads={_threads})"
             return
         except Exception:
             pass
 
-        # 3) SciPy FFT (CPU)
-        try:
-            from scipy.fft import fft2 as sp_fft2, ifft2 as sp_ifft2  # type: ignore
-            _workers = max(1, (os.cpu_count() or 4) - 1)
+        if not perf_mode:
+            # 3) SciPy FFT (CPU)
+            try:
+                from scipy.fft import fft2 as sp_fft2, ifft2 as sp_ifft2  # type: ignore
+                _workers = max(1, (os.cpu_count() or 4) - 1)
 
-            def fft2(a):   return sp_fft2(a, workers=_workers, overwrite_x=True)
-            def ifft2(a):  return sp_ifft2(a, workers=_workers, overwrite_x=True)
+                def fft2(a):   return sp_fft2(a, workers=_workers, overwrite_x=True)
+                def ifft2(a):  return sp_ifft2(a, workers=_workers, overwrite_x=True)
 
-            self.fft2, self.ifft2 = fft2, ifft2
-            self.backend_name = f"SciPy FFT (CPU, workers={_workers})"
-            return
-        except Exception:
-            pass
+                self.fft2, self.ifft2 = fft2, ifft2
+                self.backend_name = f"SciPy FFT (CPU, workers={_workers})"
+                return
+            except Exception:
+                pass
 
         # 4) NumPy fallback
         from numpy.fft import fft2 as np_fft2, ifft2 as np_ifft2

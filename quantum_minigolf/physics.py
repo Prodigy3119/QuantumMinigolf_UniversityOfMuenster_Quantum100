@@ -8,7 +8,10 @@ try:
 except Exception:
     _scipy_uniform_filter = None
 
-def step_wave(psi, expV_half, expK, fft2, ifft2, inplace=True):
+def step_wave(psi, expV_half, expK, fft2, ifft2, inplace=True, plan=None):
+    if plan is not None:
+        with plan:
+            return step_wave(psi, expV_half, expK, fft2, ifft2, inplace=inplace, plan=None)
     if inplace:
         psi *= expV_half
         psi_k = fft2(psi)
