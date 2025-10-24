@@ -117,6 +117,7 @@ class QuantumMiniGolfGame:
         self.tracker_cfg = None
         self._tracker_timer = None
         self._tracker_decoupled = False
+        self._tracker_overlay_initial = overlay_initial
         self._tracker_overlay_enabled = overlay_initial
         self._tracker_force_disabled = False
         self._tracker_area_valid = True
@@ -134,6 +135,7 @@ class QuantumMiniGolfGame:
         self._tracker_base_thickness_px: float | None = None
         self._tracker_size_scale = float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.75)))
         self._tracker_speed_base = float(max(1e-6, getattr(self.cfg, 'tracker_speed_scale', 0.01)))
+        self._abort_shot_requested = False
         self._debug_log_enabled = bool(
             getattr(self.cfg, 'use_tracker', False)
             and getattr(self.cfg, 'log_data', False)
@@ -435,6 +437,15 @@ class QuantumMiniGolfGame:
         base_thick = float(self._tracker_base_thickness_px or 0.0)
         self.tracker_cfg.putter_length_px = max(1.0, base_len * factor)
         self.tracker_cfg.putter_thickness_px = max(1.0, base_thick * factor)
+
+    def _abort_current_shot(self):
+        if self.shot_in_progress:
+            self._abort_shot_requested = True
+            self.shot_in_progress = False
+        else:
+            self._abort_shot_requested = False
+        if self.tracker:
+            self.tracker.pop_hits()
 
     def _ensure_gpu_rgba_buffer(self, shape):
         if not (self.be.USE_GPU and self.cfg.flags.gpu_viz):
@@ -882,7 +893,7 @@ class QuantumMiniGolfGame:
         if decoupled != self._tracker_decoupled:
             self._tracker_decoupled = decoupled
             if not decoupled:
-                self._tracker_overlay_enabled = True
+                self._tracker_overlay_enabled = bool(self._tracker_overlay_initial)
             self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
 
     def _on_close(self, _event):
@@ -1097,9 +1108,7 @@ class QuantumMiniGolfGame:
         allow_hits = geometry_ok and not area_blocked
         self._tracker_area_valid = allow_hits
         overlay_any_visible = geometry_ok and not area_blocked
-        overlay_visible = overlay_any_visible
-        if not self._tracker_decoupled:
-            overlay_visible = overlay_any_visible and self._tracker_overlay_enabled
+        overlay_visible = overlay_any_visible and self._tracker_overlay_enabled
         if geometry_ok:
             self.viz.update_putter_overlay(
                 center, length_game, thickness_game, angle_deg, overlay_visible
@@ -1222,8 +1231,13 @@ class QuantumMiniGolfGame:
             self._log_startup_display_info(force=True)
             self._schedule_display_info_refresh()
         elif key == 'r':
-            if not self._restore_normal_state():
+            self._abort_current_shot()
+            restored = self._restore_normal_state()
+            if restored:
                 self._reset()
+                self._abort_shot_requested = False
+            else:
+                self._double_reset()
         elif key == 'tab':
             self._toggle_map()
         elif key == 'c':
@@ -2025,7 +2039,7 @@ class QuantumMiniGolfGame:
                 print('[control panel] Matplotlib Slider widgets unavailable; control panel disabled.')
             return
 
-        fig = plt.figure(figsize=(11.3, 6.2))
+        fig = plt.figure(figsize=(11.3, 6.0))
         fig.patch.set_facecolor('black')
         try:
             fig.canvas.manager.set_window_title('Quantum Mini-Golf - Control Panel')
@@ -2060,7 +2074,7 @@ class QuantumMiniGolfGame:
             ('time', 'Shot Time',      10.0, 200.0, float(self.cfg.shot_time_limit or 75.0),    5.0, '#8c564b', self._on_shot_time_limit_change),
             ('wall', 'Wall Thickness', 0.05,5.0,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
             ('tracker_thresh', 'LED Recognition Threshold', 1.0, 150.0, float(getattr(self.cfg, 'tracker_threshold', 35)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
-            ('tracker_speed',  'Putter Speed Increase', 0.25, 4.0, 1.0, 0.05, '#e377c2', self._on_tracker_speed_scale_change),
+            ('tracker_speed',  'Putter Speed Increase', 0.25, 4.0, float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6)), 0.05, '#e377c2', self._on_tracker_speed_scale_change),
             ('tracker_size',  'Putter Size',      0.1, 1.5, float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.75))), 0.05, '#1f77b4', self._on_tracker_size_scale_change),
             ('tracker_area',  'Putter Max Area',   0.0, 20000.0, float(getattr(self.cfg, 'tracker_area_limit', 0.0)), 100.0, '#7f7f7f', self._on_tracker_area_limit_change),
         ]
@@ -2395,6 +2409,11 @@ class QuantumMiniGolfGame:
         if self.tracker:
             self._update_tracker_reference()
 
+    def _double_reset(self):
+        self._reset()
+        self._reset()
+        self._abort_shot_requested = False
+
     # ----- swing & shot
     def _compute_kvec_from_swing(self, v_vec, speed_scalar):
         s = float(max(speed_scalar, 0.0))
@@ -2548,6 +2567,8 @@ class QuantumMiniGolfGame:
         # temp exponents for this shot
         self._ensure_exponents(dt_eff)
 
+        self._abort_shot_requested = False
+
         try:
             sunk_prob = 0.0
             base_steps = self.base_steps_per_shot * (self.cfg.perf_steps_factor if self.perf_mode else 1.0)
@@ -2688,9 +2709,15 @@ class QuantumMiniGolfGame:
             sunk = False
             renorm_every = 40
             abort_reason = None  # "time" or "hole"
+            aborted = False
 
             n = 0
             while n < steps:
+                if self._abort_shot_requested or not self.shot_in_progress:
+                    aborted = True
+                    if abort_reason is None:
+                        abort_reason = "reset"
+                    break
                 if friction_mode:
                     speed_scale = self._friction_speed_scale(n, steps, friction_coeffs)
                     speed_scale = max(0.0, speed_scale)
@@ -2755,6 +2782,11 @@ class QuantumMiniGolfGame:
                     if n == 0:
                         c_t = 0.0
                     while c_t < t_target and self.viz.class_marker.get_visible():
+                        if self._abort_shot_requested or not self.shot_in_progress:
+                            aborted = True
+                            if abort_reason is None:
+                                abort_reason = "reset"
+                            break
                         step = min(c_dtc, t_target - c_t)
                         p2 = c_pos + c_v * step
 
@@ -2870,7 +2902,9 @@ class QuantumMiniGolfGame:
                                 (dens[self.course.hole_mask]).sum()))
                             if p_in > float(self.cfg.sink_prob_threshold):
                                 sunk = True
-                    if not simulate_wave:
+                if aborted:
+                    break
+                if not simulate_wave:
                         if self.cfg.flags.blitting:
                             self.viz._blit_draw()
                         else:
@@ -2895,40 +2929,46 @@ class QuantumMiniGolfGame:
 
                 n += 1
 
-            if simulate_wave:
-                self._last_density_cpu = self.be.to_cpu(
-                    (xp.abs(psi) ** 2)).astype(np.float32)
-                if self._wavefront_active:
-                    self._last_phase_cpu = np.angle(self.be.to_cpu(psi))
-                else:
-                    self._last_phase_cpu = None
-                self._update_interference_pattern()
-                if abort_reason != "hole":
-                    sunk_prob = float(
-                        self._last_density_cpu[self.course.hole_mask_cpu].sum())
-                    if sink_mode == "prob_threshold":
-                        sunk = sunk or (sunk_prob > float(self.cfg.sink_prob_threshold))
-            else:
+            if aborted:
+                self._abort_shot_requested = False
                 self._last_density_cpu = None
-
-            measured_xy = None
-            measured_local_prob = None
-            if simulate_wave and self.cfg.quantum_measure:
-                measured_xy = self._do_end_measurement()
-                measured_local_prob = self._last_measure_prob
-                if (sink_mode == "measurement") and (measured_xy is not None) and (abort_reason != "hole"):
-                    mx, my = measured_xy
-                    dx = mx - self.hole_center[0]
-                    dy = my - self.hole_center[1]
-                    in_hole = (dx * dx + dy * dy) <= (self.cfg.hole_r ** 2)
-                    min_prob = float(getattr(self.cfg, "measurement_sink_min_prob", 1e-3))
-                    local_prob = float(measured_local_prob) if measured_local_prob is not None else 0.0
-                    effective_prob = max(local_prob, sunk_prob)
-                    if in_hole and (effective_prob >= min_prob):
-                        sunk = True
-            else:
                 self._last_measure_xy = None
                 self._last_measure_prob = None
+            else:
+                if simulate_wave:
+                    self._last_density_cpu = self.be.to_cpu(
+                        (xp.abs(psi) ** 2)).astype(np.float32)
+                    if self._wavefront_active:
+                        self._last_phase_cpu = np.angle(self.be.to_cpu(psi))
+                    else:
+                        self._last_phase_cpu = None
+                    self._update_interference_pattern()
+                    if abort_reason != "hole":
+                        sunk_prob = float(
+                            self._last_density_cpu[self.course.hole_mask_cpu].sum())
+                        if sink_mode == "prob_threshold":
+                            sunk = sunk or (sunk_prob > float(self.cfg.sink_prob_threshold))
+                else:
+                    self._last_density_cpu = None
+
+                measured_xy = None
+                measured_local_prob = None
+                if simulate_wave and self.cfg.quantum_measure:
+                    measured_xy = self._do_end_measurement()
+                    measured_local_prob = self._last_measure_prob
+                    if (sink_mode == "measurement") and (measured_xy is not None) and (abort_reason != "hole"):
+                        mx, my = measured_xy
+                        dx = mx - self.hole_center[0]
+                        dy = my - self.hole_center[1]
+                        in_hole = (dx * dx + dy * dy) <= (self.cfg.hole_r ** 2)
+                        min_prob = float(getattr(self.cfg, "measurement_sink_min_prob", 1e-3))
+                        local_prob = float(measured_local_prob) if measured_local_prob is not None else 0.0
+                        effective_prob = max(local_prob, sunk_prob)
+                        if in_hole and (effective_prob >= min_prob):
+                            sunk = True
+                else:
+                    self._last_measure_xy = None
+                    self._last_measure_prob = None
 
             self.viz.update_title(self._title_text(), sunk=bool(sunk))
             if simulate_classical:

@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Dont draw blue box even if decoupeled">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Changes to slider values, ranges, names, and the control panel">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
@@ -269,7 +269,14 @@
       <option name="project" value="LOCAL" />
       <updated>1761325227274</updated>
     </task>
-    <option name="localTasksCounter" value="25" />
+    <task id="LOCAL-00025" summary="Changes to slider values, ranges, names, and the control panel">
+      <created>1761328279744</created>
+      <option name="number" value="00025" />
+      <option name="presentableId" value="LOCAL-00025" />
+      <option name="project" value="LOCAL" />
+      <updated>1761328279744</updated>
+    </task>
+    <option name="localTasksCounter" value="26" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -304,6 +311,7 @@
     <MESSAGE value="Dont draw blue box" />
     <MESSAGE value="Dont draw blue box as standard" />
     <MESSAGE value="Dont draw blue box even if decoupeled" />
-    <option name="LAST_COMMIT_MESSAGE" value="Dont draw blue box even if decoupeled" />
+    <MESSAGE value="Changes to slider values, ranges, names, and the control panel" />
+    <option name="LAST_COMMIT_MESSAGE" value="Changes to slider values, ranges, names, and the control panel" />
   </component>
 </project>

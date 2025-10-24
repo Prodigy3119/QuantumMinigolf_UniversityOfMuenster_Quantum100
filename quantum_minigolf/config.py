@@ -27,7 +27,7 @@ class GameConfig:
     dt: float = 0.35
     steps_per_shot: int = 240
     max_steps_per_shot: int = 2048
-    draw_every: int = 4
+    draw_every: int = 1
 
     # Potentials
     V_edge: float = 200.0
@@ -166,7 +166,7 @@ class GameConfig:
     performance_res_scale: float = 0.75
     performance_display_downsample: int = 1.25
     performance_smooth_passes: int = 0
-    performance_draw_every: int = 4
+    performance_draw_every: int = 1
     performance_drift_threshold: float = 1e-5
     performance_max_drift_steps: int = 4
     performance_enable_window: bool = False

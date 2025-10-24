@@ -316,7 +316,7 @@ class Visuals:
             Line2D([0], [0], marker='o', markersize=8, markerfacecolor='white',
                    markeredgecolor='black', linestyle='None', label='Classical ball'),
             Line2D([0], [0], color='lightskyblue', linewidth=2, label=r'$\langle r \rangle$ path (I/OFF)'),
-            Line2D([0], [0], color='lightskyblue', linewidth=1.2, label='1sigma/2sigma ellipse', linestyle='--'),
+            Line2D([0], [0], color='lightskyblue', linewidth=1.2, label=r'$1\sigma/2\sigma$ ellipse', linestyle='--'),
             Line2D([0], [0], marker=r'$e^-$', color='cyan', markersize=10, linestyle='None',
                    markeredgecolor='cyan', label='Measurement')
         ]
