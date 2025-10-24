@@ -99,7 +99,7 @@ class GameConfig:
     # Visuals/Perf tuning
     smooth_passes: int = 1
     vis_interpolation: str = "bilinear"
-    display_downsample_factor: int = 2
+    display_downsample_factor: int = 1
     low_dpi_value: int = 72
     target_fps: float = 30
     debounce_ms: int = 12
@@ -159,10 +159,10 @@ class GameConfig:
     performance_theta: float = 0.6 * math.pi
     performance_dt_tolerance: float = 1e-6
     performance_friction_bins: int = 32
-    performance_res_scale: float = 0.5
-    performance_display_downsample: int = 2
+    performance_res_scale: float = 0.75
+    performance_display_downsample: int = 1.5
     performance_smooth_passes: int = 0
-    performance_draw_every: int = 3
+    performance_draw_every: int = 4
     performance_drift_threshold: float = 1e-5
     performance_max_drift_steps: int = 4
     performance_enable_window: bool = False

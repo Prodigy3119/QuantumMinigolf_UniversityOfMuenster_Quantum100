@@ -245,7 +245,8 @@ def build_config(args):
         flags=flags,
     )
 
-    cfg.performance_increase = bool(getattr(args, "performance_increase", False))
+    perf_arg = getattr(args, "performance_increase", None)
+    cfg.performance_increase = True if perf_arg is None else bool(perf_arg)
     cfg.fast_mode_paraxial = bool(getattr(args, "fast_mode_paraxial", False) and cfg.performance_increase)
 
     if cfg.performance_increase:
@@ -314,19 +315,22 @@ def build_config(args):
         cfg.tracker_max_span_px = max(1.0, float(args.tracker_max_span))
 
     if cfg.performance_increase:
+        perf_res_scale = float(getattr(cfg, 'performance_res_scale', cfg.res_scale))
+        perf_draw_every = int(getattr(cfg, 'performance_draw_every', max(1, cfg.draw_every)))
+        perf_display_downsample = int(getattr(cfg, 'performance_display_downsample', cfg.display_downsample_factor))
+        perf_smooth_passes = getattr(cfg, 'performance_smooth_passes', None)
+
         if args.res_scale is None:
-            cfg.res_scale = min(cfg.res_scale, float(getattr(cfg, 'performance_res_scale', 0.5)))
+            cfg.res_scale = perf_res_scale
+        if args.draw_every is None:
+            cfg.draw_every = perf_draw_every
+
         cfg.flags.gpu_viz = True
         cfg.flags.adaptive_draw = True
         cfg.flags.display_downsample = True
-        if args.draw_every is None:
-            cfg.draw_every = max(cfg.draw_every, int(getattr(cfg, 'performance_draw_every', 3)))
-        cfg.display_downsample_factor = max(
-            cfg.display_downsample_factor,
-            int(getattr(cfg, 'performance_display_downsample', 2)),
-        )
-        if getattr(cfg, 'performance_smooth_passes', 0) is not None:
-            cfg.smooth_passes = int(getattr(cfg, 'performance_smooth_passes', 0))
+        cfg.display_downsample_factor = max(1, perf_display_downsample)
+        if perf_smooth_passes is not None:
+            cfg.smooth_passes = int(perf_smooth_passes)
         cfg.performance_enable_window = True
 
     if args.vr is not None:
@@ -374,7 +378,10 @@ def parse_args():
     parser.add_argument('--multiple-shots', action='store_true', help='Allow consecutive shots and track attempts')
     parser.add_argument('--log-data', action='store_true', help='Record VR debug telemetry to vr_debug_log.txt')
     parser.add_argument('--background-path', type=str, help='Load a custom course background image')
-    parser.add_argument('--performance-increase', action='store_true', help='Enable experimental performance optimisations')
+    parser.add_argument('--performance-increase', dest='performance_increase', action='store_true',
+                        help='Enable experimental performance optimisations', default=None)
+    parser.add_argument('--no-performance-increase', dest='performance_increase', action='store_false',
+                        help='Disable experimental performance optimisations')
     parser.add_argument('--fast-mode-paraxial', action='store_true', help='Approximate paraxial fast mode (requires --performance-increase)')
     parser.add_argument('--no-tracker-auto-scale', action='store_true', help='Disable automatic tracker scaling correction')
     parser.add_argument('--tracker-max-span', type=float, help='Maximum LED span in pixels before rejecting tracker frames')
@@ -431,6 +438,7 @@ def parse_args():
         gpu_viz=None,
         quantum_measure=None,
         boost_hole=None,
+        performance_increase=None,
     )
     return parser.parse_args()
 
@@ -492,7 +500,22 @@ def main():
             print("[info] Calibration preview skipped.")
     from quantum_minigolf.game import QuantumMiniGolfGame
 
-    game = QuantumMiniGolfGame(cfg)
+    try:
+        game = QuantumMiniGolfGame(cfg)
+    except RuntimeError as e:
+        # This is raised in backends.py when QUANTUM_MINIGOLF_BACKEND="gpu" but CUDA init fails
+        if "GPU backend forced" in str(e):
+            print("[warn] GPU init failed; falling back to CPU.")
+            os.environ["QUANTUM_MINIGOLF_BACKEND"] = "cpu"
+            # Make sure the UI doesn’t try to use GPU paths either
+            try:
+                cfg.flags.gpu_viz = False
+            except Exception:
+                pass
+            game = QuantumMiniGolfGame(cfg)
+        else:
+            raise
+
     apply_runtime_overrides(game, args)
     if headless_requested:
         print("[info] Headless mode active; skipping interactive matplotlib window.")
