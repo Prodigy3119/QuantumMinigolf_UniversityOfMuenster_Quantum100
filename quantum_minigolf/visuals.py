@@ -365,17 +365,10 @@ class Visuals:
         if minimal_ann:
             annotation_artists = [
                 self.mode_label,
-                self._wave_label,
                 self.class_label,
                 self.shot_counter_label,
                 self.hole_msg,
                 self.hole_msg_ball,
-                self.sigma1_ell,
-                self.sigma2_ell,
-                self.wave_cross_hx,
-                self.wave_cross_hy,
-                self.measure_point,
-                self.measure_marker,
             ]
             for artist in annotation_artists:
                 if artist is not None:

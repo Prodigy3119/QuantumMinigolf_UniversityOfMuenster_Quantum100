@@ -233,6 +233,9 @@ class QuantumMiniGolfGame:
         self._wavefront_active = self._wavefront_profile == 'front'
         self._wavefront_dir = np.array([1.0, 0.0], dtype=np.float32)
         self._wavefront_kmag = 0.0
+        self._overlay_compute_during_shot = False
+        self._pending_info_overlay = False
+        self._pending_measure_after_shot = False
 
         # swing detection
         self.cursor_inside = False
@@ -620,10 +623,7 @@ class QuantumMiniGolfGame:
             self.show_interference = False
             self._interference_profile = None
             self.viz.set_interference_visible(False)
-        if not self._minimal_annotations:
-            self.viz.set_wave_path_label(self.show_info and show_wave)
-        else:
-            self.viz.set_wave_path_label(False)
+        self.viz.set_wave_path_label(self.show_info and show_wave)
         if self.cfg.flags.blitting:
             self.viz._blit_draw()
         else:
@@ -1304,34 +1304,56 @@ class QuantumMiniGolfGame:
     def _toggle_info_overlay(self):
         if not self._mode_allows_quantum():
             return
-        if self._minimal_annotations:
-            print('[perf] Info overlay disabled in performance trim mode.')
-            self.show_info = False
-            self.viz.set_info_visibility(False)
-            self.viz.set_wave_path_label(False)
+        shot_guard = self.shot_in_progress and not self._overlay_compute_during_shot
+        if shot_guard:
+            if not self.show_info:
+                self.show_info = True
+                self._pending_info_overlay = True
+                self.viz.set_info_visibility(False)
+                self.viz.measure_point.set_visible(False)
+                self.viz.measure_marker.set_visible(False)
+                self.viz.set_wave_path_label(False)
+            else:
+                self.show_info = False
+                self._pending_info_overlay = False
+                self.viz.set_info_visibility(False)
+                self.viz.set_wave_path_label(False)
+                self.viz.show_messages(False, False)
+                if self.cfg.flags.blitting:
+                    self.viz._blit_draw()
+                else:
+                    self.viz.fig.canvas.draw_idle()
             return
+
         self.show_info = not self.show_info
         if not self.show_info:
+            self._pending_info_overlay = False
             self.viz.set_info_visibility(False)
             self.viz.set_wave_path_label(False)
             self.viz.show_messages(False, False)
-            self.viz.fig.canvas.draw_idle()
+            if self.cfg.flags.blitting:
+                self.viz._blit_draw()
+            else:
+                self.viz.fig.canvas.draw_idle()
+            return
+
+        self._pending_info_overlay = False
+        if self._last_density_cpu is not None and self._mode_allows_quantum():
+            dens_xp = self.be.to_xp(self._last_density_cpu, np.float32)
+            xp = self.be.xp
+            ex, ey, a1, b1, ang = covariance_ellipse(
+                self.Xgrid, self.Ygrid, dens_xp, xp, self.be.to_cpu
+            )
+            self.viz.update_overlay_from_stats(ex, ey, a1, b1, ang, show=True)
+            if self._last_measure_xy is not None:
+                mx, my = self._last_measure_xy
+                self.viz.set_measure_point(mx, my, True)
+        self.viz.set_wave_path_label(True)
+        self.viz.hole_msg.set_visible(False)
+        self.viz.hole_msg_ball.set_visible(False)
+        if self.cfg.flags.blitting:
+            self.viz._blit_draw()
         else:
-            # draw immediately if density known
-            if self._last_density_cpu is not None and self._mode_allows_quantum():
-                ex, ey, a1, b1, ang = covariance_ellipse(
-                    self.Xgrid, self.Ygrid,
-                    self.be.to_xp(self._last_density_cpu, np.float32),
-                    self.be.xp, self.be.to_cpu
-                )
-                self.viz.update_overlay_from_stats(
-                    ex, ey, a1, b1, ang, show=True)
-                if self._last_measure_xy is not None:
-                    mx, my = self._last_measure_xy
-                    self.viz.set_measure_point(mx, my, True)
-            self.viz.set_wave_path_label(True)
-            self.viz.hole_msg.set_visible(False)
-            self.viz.hole_msg_ball.set_visible(False)
             self.viz.fig.canvas.draw_idle()
 
     def _toggle_interference_pattern(self):
@@ -2592,6 +2614,9 @@ class QuantumMiniGolfGame:
                 draw_every = max(
                     1, int(round(draw_every * scale_adapt * (30.0 / self.cfg.target_fps))))
 
+            self._overlay_compute_during_shot = bool(self.show_info)
+            self._pending_info_overlay = False
+            self._pending_measure_after_shot = False
             self.shot_in_progress = True
             self.game_over = False
             if self._multiple_shots_enabled:
@@ -2876,7 +2901,7 @@ class QuantumMiniGolfGame:
                         ex, ey = compute_expectation(
                             self.Xgrid, self.Ygrid, dens, xp, self.be.to_cpu)
                         self._last_ex, self._last_ey = ex, ey
-                        if (not self._minimal_annotations) and self.show_info and (n % self.cfg.overlay_every == 0):
+                        if self._overlay_compute_during_shot and self.show_info and (n % self.cfg.overlay_every == 0):
                             ex2, ey2, a1, b1, ang = covariance_ellipse(
                                 self.Xgrid,
                                 self.Ygrid,
@@ -2934,6 +2959,8 @@ class QuantumMiniGolfGame:
                 self._last_density_cpu = None
                 self._last_measure_xy = None
                 self._last_measure_prob = None
+                self._pending_info_overlay = False
+                self._pending_measure_after_shot = False
             else:
                 if simulate_wave:
                     self._last_density_cpu = self.be.to_cpu(
@@ -2970,6 +2997,22 @@ class QuantumMiniGolfGame:
                     self._last_measure_xy = None
                     self._last_measure_prob = None
 
+            if simulate_wave and self._last_density_cpu is not None and self.show_info:
+                dens_xp = self.be.to_xp(self._last_density_cpu, np.float32)
+                xp = self.be.xp
+                ex2, ey2, a1, b1, ang = covariance_ellipse(
+                    self.Xgrid, self.Ygrid, dens_xp, xp, self.be.to_cpu
+                )
+                self.viz.update_overlay_from_stats(ex2, ey2, a1, b1, ang, show=True)
+                if self._last_measure_xy is not None:
+                    mx, my = self._last_measure_xy
+                    self.viz.set_measure_point(mx, my, True)
+                self.viz.set_wave_path_label(True)
+                self._pending_info_overlay = False
+            elif not self.show_info:
+                self.viz.set_info_visibility(False)
+                self.viz.set_wave_path_label(False)
+
             self.viz.update_title(self._title_text(), sunk=bool(sunk))
             if simulate_classical:
                 self.viz.class_marker.set_visible(True)
@@ -2989,6 +3032,11 @@ class QuantumMiniGolfGame:
 
             self.game_over = True
             self.shot_in_progress = False
+            self._overlay_compute_during_shot = False
+            self._pending_info_overlay = False
+            if self._pending_measure_after_shot:
+                self._measure_now()
+            self._pending_measure_after_shot = False
 
         finally:
             # restore dt exponents
@@ -3033,9 +3081,18 @@ class QuantumMiniGolfGame:
             return
         if self._last_density_cpu is None:
             return
-        if self._minimal_annotations:
-            print('[perf] Measurement overlay disabled in performance trim mode.')
+        if self.shot_in_progress and not self._overlay_compute_during_shot:
+            self._pending_measure_after_shot = True
+            if not self.show_info:
+                self.show_info = True
+            self._pending_info_overlay = True
+            self.viz.set_info_visibility(False)
+            self.viz.measure_point.set_visible(False)
+            self.viz.measure_marker.set_visible(False)
+            self.viz.set_wave_path_label(False)
             return
+        self._pending_measure_after_shot = False
+        self._pending_info_overlay = False
         if not self.show_info:
             self.show_info = True
 
