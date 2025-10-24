@@ -179,7 +179,7 @@ class QuantumMiniGolfGame:
                     crop_x2=getattr(self.cfg, 'tracker_crop_x2', None),
                     crop_y1=getattr(self.cfg, 'tracker_crop_y1', None),
                     crop_y2=getattr(self.cfg, 'tracker_crop_y2', None),
-                    threshold=int(getattr(self.cfg, 'tracker_threshold', 60)),
+                    threshold=int(getattr(self.cfg, 'tracker_threshold', 175)),
                 )
                 if calibration is not None:
                     tracker_kwargs["frame_width"] = calibration.frame_width
@@ -2073,7 +2073,7 @@ class QuantumMiniGolfGame:
             ('move', 'Move Speed',     2.0, 25.0, float(self.cfg.movement_speed_scale),    0.1, '#9467bd', self._on_movement_speed_change),
             ('time', 'Shot Time',      10.0, 200.0, float(self.cfg.shot_time_limit or 75.0),    5.0, '#8c564b', self._on_shot_time_limit_change),
             ('wall', 'Wall Thickness', 0.05,5.0,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
-            ('tracker_thresh', 'LED Recognition Threshold', 1.0, 150.0, float(getattr(self.cfg, 'tracker_threshold', 35)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
+            ('tracker_thresh', 'LED Recognition Threshold', 1.0, 250.0, float(getattr(self.cfg, 'tracker_threshold', 175)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
             ('tracker_speed',  'Putter Speed Increase', 0.25, 4.0, float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6)), 0.05, '#e377c2', self._on_tracker_speed_scale_change),
             ('tracker_size',  'Putter Size',      0.1, 1.5, float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.75))), 0.05, '#1f77b4', self._on_tracker_size_scale_change),
             ('tracker_area',  'Putter Max Area',   0.0, 20000.0, float(getattr(self.cfg, 'tracker_area_limit', 0.0)), 100.0, '#7f7f7f', self._on_tracker_area_limit_change),
@@ -2180,7 +2180,7 @@ class QuantumMiniGolfGame:
             'move': float(np.clip(self.cfg.movement_speed_scale, self._movement_slider_bounds[0], self._movement_slider_bounds[1])),
             'time': float(np.clip(self.cfg.shot_time_limit if self.cfg.shot_time_limit is not None else 75.0, 10.0, 200.0)),
             'wall': float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 5.0)),
-            'tracker_thresh': float(np.clip(getattr(self.cfg, 'tracker_threshold', 35), 1.0, 150.0)),
+            'tracker_thresh': float(np.clip(getattr(self.cfg, 'tracker_threshold', 175), 1.0, 250.0)),
             'tracker_speed': float(np.clip(ratio, 0.25, 4.0)),
             'tracker_size': float(np.clip(getattr(self.cfg, 'tracker_length_scale', 0.75), 0.1, 1.5)),
             'tracker_area': float(max(0.0, getattr(self.cfg, 'tracker_area_limit', 0.0))),
@@ -2223,7 +2223,7 @@ class QuantumMiniGolfGame:
         if 'wall' in sliders:
             sliders['wall'].valtext.set_text(f"{getattr(self.cfg, 'single_wall_thickness_factor', 1.0):.2f}")
         if 'tracker_thresh' in sliders:
-            sliders['tracker_thresh'].valtext.set_text(f"{int(round(getattr(self.cfg, 'tracker_threshold', 35)))}")
+            sliders['tracker_thresh'].valtext.set_text(f"{int(round(getattr(self.cfg, 'tracker_threshold', 175)))}")
         if 'tracker_speed' in sliders:
             factor = float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6))
             sliders['tracker_speed'].valtext.set_text(f"{factor:.2f}x")
@@ -2318,7 +2318,7 @@ class QuantumMiniGolfGame:
         if getattr(self, '_panel_updating', False):
             return
         thresh = int(round(float(val)))
-        thresh = max(1, min(150, thresh))
+        thresh = max(1, min(250, thresh))
         self.cfg.tracker_threshold = thresh
         if self.tracker_cfg is not None:
             self.tracker_cfg.threshold = thresh

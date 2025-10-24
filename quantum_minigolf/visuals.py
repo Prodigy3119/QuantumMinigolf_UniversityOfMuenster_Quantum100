@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 from matplotlib.patches import Rectangle, Circle, Ellipse, Polygon
 from matplotlib.collections import PatchCollection
-from matplotlib.lines import Line2D
 import matplotlib.image as mpimg
 from pathlib import Path
 
@@ -311,25 +310,6 @@ class Visuals:
         self.hole_msg.set_visible(False)
         self.hole_msg_ball.set_visible(False)
 
-        # legend
-        handles = [
-            Line2D([0], [0], marker='o', markersize=8, markerfacecolor='white',
-                   markeredgecolor='black', linestyle='None', label='Classical ball'),
-            Line2D([0], [0], color='lightskyblue', linewidth=2, label=r'$\langle r \rangle$ path (I/OFF)'),
-            Line2D([0], [0], color='lightskyblue', linewidth=1.2, label=r'$1\sigma/2\sigma$ ellipse', linestyle='--'),
-            Line2D([0], [0], marker=r'$e^-$', color='cyan', markersize=10, linestyle='None',
-                   markeredgecolor='cyan', label='Measurement')
-        ]
-        self.leg = self.ax.legend(handles=handles, loc='lower left', framealpha=0.25, fontsize=9)
-        self._wave_legend_text = None
-        texts = self.leg.get_texts() if self.leg is not None else []
-        if texts:
-            try:
-                self._wave_legend_text = texts[1]
-            except IndexError:
-                self._wave_legend_text = texts[0]
-        self.leg.set_visible(True)
-
         # interference pattern axis (hidden until toggled)
         base_pos = self.ax.get_position()
         panel_width = 0.13
@@ -510,13 +490,8 @@ class Visuals:
             self.fig.canvas.draw_idle()
 
     def set_wave_path_label(self, overlay_on):
-        # keep label in sync with legend entry
         label = r'$\langle r \rangle$ path (I/ON)' if overlay_on else r'$\langle r \rangle$ path (I/OFF)'
         self.wave_path_line.set_label(label)
-        if self._wave_legend_text is not None:
-            self._wave_legend_text.set_text(label)
-        if self.leg is not None:
-            self.leg.stale = True
         if self.flags.blitting:
             self._blit_draw()
         else:

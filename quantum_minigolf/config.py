@@ -114,7 +114,7 @@ class GameConfig:
     # Tracker integration
     use_tracker: bool = True
     tracker_speed_scale: float = 0.012
-    tracker_threshold: int = 35
+    tracker_threshold: int = 175
     tracker_length_scale: float = 0.75
     tracker_thickness_scale: float = 0.75
     tracker_min_span_px: float = 10.0
