@@ -9,6 +9,69 @@ from matplotlib.lines import Line2D
 import matplotlib.image as mpimg
 from pathlib import Path
 
+try:  # Optional Qt overlay support
+    from matplotlib.backends.qt_compat import QtWidgets, QtCore, QtGui  # type: ignore
+except Exception:
+    QtWidgets = None  # type: ignore
+    QtCore = None  # type: ignore
+    QtGui = None  # type: ignore
+
+
+if QtWidgets is not None:
+    class _TrackerOverlayWidget(QtWidgets.QWidget):  # pragma: no cover - GUI
+        def __init__(self, parent: QtWidgets.QWidget):
+            super().__init__(parent)
+            self._polygon: list[QtCore.QPointF] | None = None
+            self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+            self.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
+            self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+            self.setAutoFillBackground(False)
+            parent.installEventFilter(self)
+            self.hide()
+
+        def update_polygon(self, points: np.ndarray | None):
+            if points is None or len(points) < 3:
+                self._polygon = None
+                self.hide()
+                self.update()
+                return
+            self._polygon = [QtCore.QPointF(float(x), float(y)) for x, y in points]
+            self.resize(self.parent().size())
+            self.show()
+            self.raise_()
+            self.update()
+
+        def clear_polygon(self):
+            if self._polygon is None:
+                return
+            self._polygon = None
+            self.hide()
+            self.update()
+
+        def paintEvent(self, event):  # type: ignore[override]
+            if not self._polygon:
+                return
+            painter = QtGui.QPainter(self)
+            painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+            pen = QtGui.QPen(QtGui.QColor(51, 204, 255, 220))
+            pen.setWidth(2)
+            painter.setPen(pen)
+            brush = QtGui.QBrush(QtGui.QColor(51, 204, 255, 70))
+            painter.setBrush(brush)
+            path = QtGui.QPainterPath()
+            path.moveTo(self._polygon[0])
+            for pt in self._polygon[1:]:
+                path.lineTo(pt)
+            path.closeSubpath()
+            painter.drawPath(path)
+
+        def eventFilter(self, obj, event):  # type: ignore[override]
+            if event.type() == QtCore.QEvent.Resize and obj is self.parent():
+                self.resize(obj.size())
+            return super().eventFilter(obj, event)
+else:  # pragma: no cover - headless / non-Qt environments
+    _TrackerOverlayWidget = None  # type: ignore
+
 
 class Visuals:
     """
@@ -197,6 +260,14 @@ class Visuals:
             "thickness": 0.0,
             "angle_deg": 0.0,
         }
+        self._tracker_overlay_widget = None
+        self._tracker_overlay_warned = False
+        if (
+            getattr(cfg, 'decouple_tracker_overlay', False)
+            and getattr(cfg, 'use_tracker', False)
+            and not getattr(cfg, 'enable_mouse_swing', False)
+        ):
+            self._tracker_overlay_widget = self._create_tracker_overlay_widget()
 
         # labels
         self.mode_label = self.ax.text(
@@ -519,14 +590,47 @@ class Visuals:
         length_f = float(length)
         thickness_f = float(thickness)
         angle_f = float(angle_deg)
-        state_center = (cx, cy) if visible else None
+        decouple_requested = bool(
+            getattr(self.cfg, 'decouple_tracker_overlay', False)
+            and getattr(self.cfg, 'use_tracker', False)
+            and not getattr(self.cfg, 'enable_mouse_swing', False)
+        )
+        overlay_widget = self._tracker_overlay_widget
+        if decouple_requested and overlay_widget is None:
+            overlay_widget = self._create_tracker_overlay_widget()
+            self._tracker_overlay_widget = overlay_widget
+        decoupled = decouple_requested and (overlay_widget is not None)
+
+        state_center = (cx, cy) if (visible or decoupled) else None
+        overlay_visible = bool(visible and not decoupled)
         self._last_putter_state = {
-            "visible": bool(visible),
+            "visible": overlay_visible,
             "center": state_center,
             "length": length_f,
             "thickness": thickness_f,
             "angle_deg": angle_f,
         }
+
+        if decoupled:
+            if overlay_widget is not None:
+                if visible:
+                    points = self._build_putter_corners(cx, cy, length_f, thickness_f, angle_f)
+                    projected = self._project_tracker_points(points)
+                    overlay_widget.update_polygon(projected)
+                    try:
+                        overlay_widget.raise_()
+                    except Exception:
+                        pass
+                else:
+                    overlay_widget.clear_polygon()
+            if self.putter_patch.get_visible():
+                self.putter_patch.set_visible(False)
+                if self.flags.blitting:
+                    self._blit_draw()
+                else:
+                    self.fig.canvas.draw_idle()
+            return
+
         if not visible:
             self.putter_patch.set_visible(False)
             if self.flags.blitting:
@@ -534,13 +638,8 @@ class Visuals:
             else:
                 self.fig.canvas.draw_idle()
             return
-        half_l = 0.5 * length_f
-        half_t = 0.5 * thickness_f
-        rad = math.radians(angle_f)
-        cos_a = math.cos(rad); sin_a = math.sin(rad)
-        corners = np.array([[-half_l, -half_t], [half_l, -half_t], [half_l,  half_t], [-half_l,  half_t]])
-        rot = np.array([[cos_a, -sin_a], [sin_a, cos_a]])
-        pts = (corners @ rot.T) + np.array([cx, cy])
+
+        pts = self._build_putter_corners(cx, cy, length_f, thickness_f, angle_f)
         self.putter_patch.set_xy(pts)
         self.putter_patch.set_visible(True)
         if self.flags.blitting:
@@ -571,6 +670,13 @@ class Visuals:
         if self.flags.blitting:
             self._init_blit()
         self._update_flush_stride()
+        widget = getattr(self, '_tracker_overlay_widget', None)
+        if widget is not None and QtWidgets is not None:
+            try:
+                widget.resize(self.fig.canvas.size())
+                widget.raise_()
+            except Exception:
+                pass
 
     def _update_flush_stride(self):
         try:
@@ -633,3 +739,63 @@ class Visuals:
                 self.fig.canvas.flush_events()
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------ tracker overlay helpers
+
+    def _build_putter_corners(self, cx, cy, length, thickness, angle_deg):
+        half_l = 0.5 * float(length)
+        half_t = 0.5 * float(thickness)
+        rad = math.radians(float(angle_deg))
+        cos_a = math.cos(rad)
+        sin_a = math.sin(rad)
+        corners = np.array(
+            [
+                [-half_l, -half_t],
+                [half_l, -half_t],
+                [half_l, half_t],
+                [-half_l, half_t],
+            ],
+            dtype=np.float32,
+        )
+        rot = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float32)
+        offset = np.array([cx, cy], dtype=np.float32)
+        return (corners @ rot.T) + offset
+
+    def _project_tracker_points(self, points):
+        if points is None:
+            return None
+        canvas = getattr(self.fig, 'canvas', None)
+        if canvas is None or not hasattr(canvas, 'get_width_height'):
+            return None
+        try:
+            disp = self.ax.transData.transform(points)
+        except Exception:
+            return None
+        width, height = canvas.get_width_height()
+        projected = np.asarray(disp, dtype=np.float32)
+        if projected.ndim != 2 or projected.shape[1] != 2:
+            return None
+        projected[:, 1] = height - projected[:, 1]
+        return projected
+
+    def _create_tracker_overlay_widget(self):
+        if QtWidgets is None or _TrackerOverlayWidget is None:
+            if not self._tracker_overlay_warned:
+                print("[warn] Tracker overlay decoupling requires the QtAgg backend; falling back to in-figure overlay.")
+                self._tracker_overlay_warned = True
+            return None
+        canvas = getattr(self.fig, 'canvas', None)
+        if canvas is None or not isinstance(canvas, QtWidgets.QWidget):
+            if not self._tracker_overlay_warned:
+                print("[warn] Tracker overlay decoupling unavailable (Qt canvas not detected).")
+                self._tracker_overlay_warned = True
+            return None
+        try:
+            widget = _TrackerOverlayWidget(canvas)
+            widget.resize(canvas.size())
+            return widget
+        except Exception as exc:  # pragma: no cover - GUI failure path
+            if not self._tracker_overlay_warned:
+                print(f"[warn] Failed to initialise decoupled tracker overlay: {exc}")
+                self._tracker_overlay_warned = True
+            return None

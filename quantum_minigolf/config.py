@@ -129,6 +129,7 @@ class GameConfig:
     tracker_auto_scale: bool = False
     tracker_max_span_px: float = 220.0
     tracker_coord_margin: float = 12.0
+    decouple_tracker_overlay: bool = False
 
     # Time limit per shot (simulation seconds); None = no limit
     shot_time_limit: float = 120
@@ -160,7 +161,7 @@ class GameConfig:
     performance_dt_tolerance: float = 1e-6
     performance_friction_bins: int = 32
     performance_res_scale: float = 0.75
-    performance_display_downsample: int = 1.5
+    performance_display_downsample: int = 1.25
     performance_smooth_passes: int = 0
     performance_draw_every: int = 4
     performance_drift_threshold: float = 1e-5

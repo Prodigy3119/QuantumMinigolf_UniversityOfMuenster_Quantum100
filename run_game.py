@@ -254,6 +254,12 @@ def build_config(args):
         if "QUANTUM_MINIGOLF_BACKEND" not in os.environ:
             os.environ["QUANTUM_MINIGOLF_BACKEND"] = "gpu"
 
+    overlay_arg = getattr(args, "decouple_tracker_overlay", None)
+    if overlay_arg is not None:
+        cfg.decouple_tracker_overlay = bool(overlay_arg)
+    else:
+        cfg.decouple_tracker_overlay = bool(cfg.performance_increase)
+
     if args.map:
         cfg.map_kind = args.map
     if args.wave_profile:
@@ -379,7 +385,7 @@ def parse_args():
     parser.add_argument('--log-data', action='store_true', help='Record VR debug telemetry to vr_debug_log.txt')
     parser.add_argument('--background-path', type=str, help='Load a custom course background image')
     parser.add_argument('--performance-increase', dest='performance_increase', action='store_true',
-                        help='Enable experimental performance optimisations', default=None)
+                        help='Enable experimental performance optimisations')
     parser.add_argument('--no-performance-increase', dest='performance_increase', action='store_false',
                         help='Disable experimental performance optimisations')
     parser.add_argument('--fast-mode-paraxial', action='store_true', help='Approximate paraxial fast mode (requires --performance-increase)')
@@ -405,6 +411,10 @@ def parse_args():
     parser.add_argument('--target-fps', type=float, help='Target rendering rate (frames per second)')
     parser.add_argument('--draw-every', type=int, help='Render every Nth simulation frame')
     parser.add_argument('--res-scale', type=float, help='Scale factor applied to the simulation resolution')
+    parser.add_argument('--decouple-tracker-overlay', dest='decouple_tracker_overlay', action='store_true',
+                        help='Render tracker overlay outside the Matplotlib scene')
+    parser.add_argument('--no-decouple-tracker-overlay', dest='decouple_tracker_overlay', action='store_false',
+                        help='Draw the tracker overlay inside the Matplotlib scene')
 
     # Tracker & VR
     parser.add_argument('--vr', dest='vr', action='store_true', help='Enable tracker-driven VR swing control')
@@ -439,6 +449,7 @@ def parse_args():
         quantum_measure=None,
         boost_hole=None,
         performance_increase=None,
+        decouple_tracker_overlay=None,
     )
     return parser.parse_args()
 

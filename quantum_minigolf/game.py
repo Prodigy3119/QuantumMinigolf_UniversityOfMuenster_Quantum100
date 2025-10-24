@@ -103,6 +103,7 @@ class QuantumMiniGolfGame:
         self.tracker = None
         self.tracker_cfg = None
         self._tracker_timer = None
+        self._tracker_decoupled = False
         self._tracker_overlay_enabled = True
         self._tracker_force_disabled = False
         self._tracker_area_valid = True
@@ -815,6 +816,28 @@ class QuantumMiniGolfGame:
         self._tracker_timer = self.viz.fig.canvas.new_timer(interval=33)
         self._tracker_timer.add_callback(self._poll_tracker)
         self._tracker_timer.start()
+        self._refresh_tracker_overlay_mode()
+
+    def _compute_tracker_decoupled(self) -> bool:
+        if not getattr(self.cfg, 'decouple_tracker_overlay', False):
+            return False
+        if not getattr(self.cfg, 'use_tracker', False):
+            return False
+        if self.tracker is None:
+            return False
+        if getattr(self.cfg, 'enable_mouse_swing', False):
+            return False
+        if self._tracker_force_disabled:
+            return False
+        return True
+
+    def _refresh_tracker_overlay_mode(self) -> None:
+        decoupled = self._compute_tracker_decoupled()
+        if decoupled != self._tracker_decoupled:
+            self._tracker_decoupled = decoupled
+            if not decoupled:
+                self._tracker_overlay_enabled = True
+            self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
 
     def _on_close(self, _event):
         if self._tracker_timer is not None:
@@ -1027,13 +1050,14 @@ class QuantumMiniGolfGame:
         self._tracker_last_area = float(area_game)
         allow_hits = geometry_ok and not area_blocked
         self._tracker_area_valid = allow_hits
-        overlay_visible = (
-            geometry_ok
-            and self._tracker_overlay_enabled
-            and not area_blocked
-        )
-        if overlay_visible:
-            self.viz.update_putter_overlay(center, length_game, thickness_game, angle_deg, True)
+        overlay_any_visible = geometry_ok and not area_blocked
+        overlay_visible = overlay_any_visible
+        if not self._tracker_decoupled:
+            overlay_visible = overlay_any_visible and self._tracker_overlay_enabled
+        if geometry_ok:
+            self.viz.update_putter_overlay(
+                center, length_game, thickness_game, angle_deg, overlay_visible
+            )
         else:
             self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
         hits = self.tracker.pop_hits()
@@ -1701,6 +1725,9 @@ class QuantumMiniGolfGame:
         self._announce_switch('g', 'enable_mouse_swing', old, new)
 
     def _toggle_tracker_overlay(self):
+        if self._tracker_decoupled:
+            print('[o] Tracker overlay is decoupled from Matplotlib; restart with --no-decouple-tracker-overlay to enable in-scene drawing.')
+            return
         old_state = 'visible' if self._tracker_overlay_enabled else 'hidden'
         self._tracker_overlay_enabled = not self._tracker_overlay_enabled
         if not self._tracker_overlay_enabled:
@@ -1722,6 +1749,7 @@ class QuantumMiniGolfGame:
             # Allow tracker poll to re-enable overlay when geometry is valid
             if self.tracker:
                 self._update_tracker_reference()
+        self._refresh_tracker_overlay_mode()
 
     def _print_hotkey_help(self):
         BLUE = "\033[34m\033[4m"
@@ -2442,14 +2470,8 @@ class QuantumMiniGolfGame:
         movement_factor = float(max(0.1, getattr(self, '_movement_speed_factor', 1.0)))
         speed_boost = movement_factor
         dt_eff = float(old_dt)
-        if self._perf_enabled:
-            try:
-                dt_budget = self._compute_phase_dt()
-                dt_eff = float(min(dt_eff, dt_budget))
-            except Exception as exc:
-                if not self._perf_dt_fail_logged:
-                    print(f"[perf] Failed computing phase-budget dt; using fallback: {exc}")
-                    self._perf_dt_fail_logged = True
+        dt_scale = 1.0
+        dt_eff = old_dt  # keep classical integrator stable; wave safety is handled elsewhere
 
         simulate_classical = self._mode_allows_classical()
         simulate_wave = self._mode_allows_quantum()
@@ -2480,6 +2502,8 @@ class QuantumMiniGolfGame:
         try:
             sunk_prob = 0.0
             base_steps = self.base_steps_per_shot * (self.cfg.perf_steps_factor if self.perf_mode else 1.0)
+            if dt_scale > 0.0:
+                base_steps *= dt_scale
             steps = int(max(1, round(base_steps)))
             shot_limit = getattr(self.cfg, 'shot_time_limit', None)
             if shot_limit is not None and shot_limit > 0.0:
@@ -2487,6 +2511,8 @@ class QuantumMiniGolfGame:
                 max_steps = int(max(1, getattr(self.cfg, 'max_steps_per_shot', limit_steps)))
                 steps = int(max(1, min(limit_steps, max_steps)))
             draw_every = self.perf_draw_every if self.perf_mode else self.base_draw_every
+            if self.perf_mode and dt_scale > 1.0:
+                draw_every = max(1, int(round(draw_every * dt_scale)))
             sigma = self.cfg.perf_sigma0 if self.perf_mode else self.cfg.sigma0
 
             if self.cfg.flags.adaptive_draw:
