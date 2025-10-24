@@ -91,7 +91,7 @@ class GameConfig:
     # Bias (toward hole)
     boost_hole_probability: bool = True
     boost_hole_probability_factor: float = 0.0
-    boost_hole_probability_increment: float = 0.03
+    boost_hole_probability_increment: float = 0.04
     boost_hole_probability_autoincrement_on_measure: bool = True
 
     # Visibility
@@ -109,14 +109,14 @@ class GameConfig:
     overlay_every: int = 3
 
     # Motion scaling
-    movement_speed_scale: float = 2.5  # Multiplier applied to ball/wave travel after a shot
+    movement_speed_scale: float = 8.0  # Multiplier applied to ball/wave travel after a shot
 
     # Tracker integration
     use_tracker: bool = True
     tracker_speed_scale: float = 0.012
-    tracker_threshold: int = 60
-    tracker_length_scale: float = 1.0
-    tracker_thickness_scale: float = 1.0
+    tracker_threshold: int = 35
+    tracker_length_scale: float = 0.75
+    tracker_thickness_scale: float = 0.75
     tracker_min_span_px: float = 10.0
     tracker_overlay_thickness_px: float = 4.0
     tracker_area_limit: float = 0.0  # 0 disables area-based suppression
@@ -135,7 +135,7 @@ class GameConfig:
     decouple_tracker_overlay: bool = False
 
     # Time limit per shot (simulation seconds); None = no limit
-    shot_time_limit: float = 120
+    shot_time_limit: float = 75
 
     # Video playback configuration
     video_playback_speed: float = 1.5

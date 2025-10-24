@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Draw less often and trim plt work" />
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Dont draw blue box even if decoupeled">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -251,7 +255,21 @@
       <option name="project" value="LOCAL" />
       <updated>1761321626741</updated>
     </task>
-    <option name="localTasksCounter" value="23" />
+    <task id="LOCAL-00023" summary="Dont draw blue box">
+      <created>1761325201450</created>
+      <option name="number" value="00023" />
+      <option name="presentableId" value="LOCAL-00023" />
+      <option name="project" value="LOCAL" />
+      <updated>1761325201450</updated>
+    </task>
+    <task id="LOCAL-00024" summary="Dont draw blue box even if decoupeled">
+      <created>1761325227274</created>
+      <option name="number" value="00024" />
+      <option name="presentableId" value="LOCAL-00024" />
+      <option name="project" value="LOCAL" />
+      <updated>1761325227274</updated>
+    </task>
+    <option name="localTasksCounter" value="25" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -283,6 +301,9 @@
     <MESSAGE value="Performance changes in the variables; Force GPU usage (swap backend ladder)" />
     <MESSAGE value="Decouple the tracker overlay from Matplotlib using a flag" />
     <MESSAGE value="Draw less often and trim plt work" />
-    <option name="LAST_COMMIT_MESSAGE" value="Draw less often and trim plt work" />
+    <MESSAGE value="Dont draw blue box" />
+    <MESSAGE value="Dont draw blue box as standard" />
+    <MESSAGE value="Dont draw blue box even if decoupeled" />
+    <option name="LAST_COMMIT_MESSAGE" value="Dont draw blue box even if decoupeled" />
   </component>
 </project>
