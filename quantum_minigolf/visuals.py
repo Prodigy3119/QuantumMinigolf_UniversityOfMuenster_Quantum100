@@ -371,6 +371,48 @@ class Visuals:
         if flags.blitting:
             self.fig.canvas.mpl_connect('resize_event', self._handle_resize)
 
+    def apply_performance_trim(self, flags):
+        render_paths = bool(getattr(flags, 'render_paths', True))
+        minimal_ann = bool(getattr(flags, 'minimal_annotations', False))
+        disabled = []
+
+        if not render_paths:
+            for artist in (self.class_path_line, self.wave_path_line):
+                if artist is not None:
+                    artist.set_visible(False)
+                    disabled.append(artist)
+
+        if minimal_ann:
+            annotation_artists = [
+                self.mode_label,
+                self._wave_label,
+                self.class_label,
+                self.shot_counter_label,
+                self.hole_msg,
+                self.hole_msg_ball,
+                self.sigma1_ell,
+                self.sigma2_ell,
+                self.wave_cross_hx,
+                self.wave_cross_hy,
+                self.measure_point,
+                self.measure_marker,
+            ]
+            for artist in annotation_artists:
+                if artist is not None:
+                    artist.set_visible(False)
+                    disabled.append(artist)
+            if hasattr(self, 'pattern_ax') and self.pattern_ax is not None:
+                self.pattern_ax.set_visible(False)
+            if hasattr(self, 'pattern_line') and self.pattern_line is not None:
+                self.pattern_line.set_visible(False)
+
+        if disabled and getattr(self, '_animated_artists', None):
+            self._animated_artists = [a for a in self._animated_artists if a not in disabled]
+        try:
+            self.fig.canvas.draw_idle()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------ patches / drawing
 
     def set_course_patches(self, patches):
@@ -550,10 +592,13 @@ class Visuals:
         self.class_path_line.set_data([], [])
         self.class_marker.set_visible(False)
         self.class_label.set_text("")
+        if not getattr(self.flags, 'render_paths', True):
+            self.class_path_line.set_visible(False)
 
     def clear_wave_overlay(self, plot_wave=True):
         self.wave_path_line.set_data([], [])
-        self.wave_path_line.set_visible(bool(plot_wave))
+        allow_paths = bool(getattr(self.flags, 'render_paths', True))
+        self.wave_path_line.set_visible(bool(plot_wave) and allow_paths)
         self.wave_end_marker.set_visible(False)
         self.wave_cross_hx.set_visible(False)
         self.wave_cross_hy.set_visible(False)

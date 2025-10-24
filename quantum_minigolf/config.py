@@ -11,6 +11,8 @@ class PerformanceFlags:
     inplace_step: bool = True
     adaptive_draw: bool = True
     path_decimation: bool = True
+    render_paths: bool = True
+    minimal_annotations: bool = False
     event_debounce: bool = True
     fast_blur: bool = True
     pixel_upscale: bool = True
@@ -25,7 +27,7 @@ class GameConfig:
     dt: float = 0.35
     steps_per_shot: int = 240
     max_steps_per_shot: int = 2048
-    draw_every: int = 3
+    draw_every: int = 4
 
     # Potentials
     V_edge: float = 200.0
@@ -103,7 +105,7 @@ class GameConfig:
     low_dpi_value: int = 72
     target_fps: float = 30
     debounce_ms: int = 12
-    path_decimation_stride: int = 3
+    path_decimation_stride: int = 4
     overlay_every: int = 3
 
     # Motion scaling
@@ -171,3 +173,4 @@ class GameConfig:
 
     # Performance flags
     flags: PerformanceFlags = field(default_factory=PerformanceFlags)
+    auto_trim_visuals: bool = True

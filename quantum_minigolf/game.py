@@ -54,6 +54,13 @@ class QuantumMiniGolfGame:
             print("[perf] fast-mode-paraxial requires --performance-increase; ignoring.")
             self.cfg.fast_mode_paraxial = False
 
+        self._trim_visuals = bool(self._perf_enabled and getattr(self.cfg, 'auto_trim_visuals', True))
+        if self._trim_visuals:
+            if getattr(self.cfg.flags, 'render_paths', True):
+                self.cfg.flags.render_paths = False
+            self.cfg.flags.minimal_annotations = True
+            self.cfg.flags.path_decimation = True
+
         # numeric dtypes & grids
         self.f32 = np.float32
         self.c64 = np.complex64
@@ -96,6 +103,8 @@ class QuantumMiniGolfGame:
         # visuals
         self.viz = Visuals(self.Nx, self.Ny, self.hole_center,
                            self.cfg.hole_r, self.cfg.flags, self.cfg)
+        if self._trim_visuals or getattr(self.cfg.flags, 'minimal_annotations', False) or not getattr(self.cfg.flags, 'render_paths', True):
+            self.viz.apply_performance_trim(self.cfg.flags)
         self.viz.set_course_patches(self.course.course_patches)
         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
         self.viz.update_title(self._title_text())
@@ -220,6 +229,8 @@ class QuantumMiniGolfGame:
 
         self.ds_factor = int(max(1, self.cfg.display_downsample_factor))
         self.path_decim = int(max(1, self.cfg.path_decimation_stride))
+        self._render_paths = bool(getattr(self.cfg.flags, 'render_paths', True))
+        self._minimal_annotations = bool(getattr(self.cfg.flags, 'minimal_annotations', False))
 
         # perf-mode values (you can expose a toggle later)
         self.perf_mode = bool(self._perf_enabled)
@@ -538,7 +549,8 @@ class QuantumMiniGolfGame:
 
     def _apply_mode_settings(self, initial=False):
         label, color = self._mode_styles[self.mode]
-        self.viz.update_mode_label(label, color)
+        if not self._minimal_annotations:
+            self.viz.update_mode_label(label, color)
         show_ball = self._mode_allows_classical()
         show_wave = self._mode_allows_quantum()
         self.viz.set_ball_visible(show_ball)
@@ -566,7 +578,10 @@ class QuantumMiniGolfGame:
             self.show_interference = False
             self._interference_profile = None
             self.viz.set_interference_visible(False)
-        self.viz.set_wave_path_label(self.show_info and show_wave)
+        if not self._minimal_annotations:
+            self.viz.set_wave_path_label(self.show_info and show_wave)
+        else:
+            self.viz.set_wave_path_label(False)
         if self.cfg.flags.blitting:
             self.viz._blit_draw()
         else:
@@ -1243,6 +1258,12 @@ class QuantumMiniGolfGame:
 
     def _toggle_info_overlay(self):
         if not self._mode_allows_quantum():
+            return
+        if self._minimal_annotations:
+            print('[perf] Info overlay disabled in performance trim mode.')
+            self.show_info = False
+            self.viz.set_info_visibility(False)
+            self.viz.set_wave_path_label(False)
             return
         self.show_info = not self.show_info
         if not self.show_info:
@@ -2624,8 +2645,8 @@ class QuantumMiniGolfGame:
                 c_speed = np.linalg.norm(c_v) + 1e-9
                 c_dtc = min(0.5, 0.6 / c_speed)
                 c_t = 0.0
-                class_xs = [c_pos[0]]
-                class_ys = [c_pos[1]]
+                class_xs = [c_pos[0]] if self._render_paths else []
+                class_ys = [c_pos[1]] if self._render_paths else []
                 self.viz.class_marker.center = (c_pos[0], c_pos[1])
                 self.viz.class_marker.set_visible(True)
             else:
@@ -2749,8 +2770,9 @@ class QuantumMiniGolfGame:
                         self.ball_pos[0] = float(c_pos[0])
                         self.ball_pos[1] = float(c_pos[1])
                         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
-                        class_xs.append(c_pos[0])
-                        class_ys.append(c_pos[1])
+                        if self._render_paths:
+                            class_xs.append(c_pos[0])
+                            class_ys.append(c_pos[1])
                         c_t += step
 
                         dx = c_pos[0] - self.hole_center[0]
@@ -2778,11 +2800,15 @@ class QuantumMiniGolfGame:
                         if self.show_interference:
                             self._update_interference_pattern(density=dens)
                     if simulate_classical:
-                        xs = class_xs[::self.path_decim] if (
-                            self.cfg.flags.path_decimation and self.path_decim > 1) else class_xs
-                        ys = class_ys[::self.path_decim] if (
-                            self.cfg.flags.path_decimation and self.path_decim > 1) else class_ys
-                        self.viz.class_path_line.set_data(xs, ys)
+                        if self._render_paths and class_xs:
+                            xs = class_xs[::self.path_decim] if (
+                                self.cfg.flags.path_decimation and self.path_decim > 1) else class_xs
+                            ys = class_ys[::self.path_decim] if (
+                                self.cfg.flags.path_decimation and self.path_decim > 1) else class_ys
+                            self.viz.class_path_line.set_data(xs, ys)
+                            self.viz.class_path_line.set_visible(True)
+                        elif not self._render_paths:
+                            self.viz.class_path_line.set_visible(False)
                         if c_pos is not None:
                             self.viz.class_marker.center = (c_pos[0], c_pos[1])
                         self.viz.class_marker.set_visible(True)
@@ -2790,7 +2816,7 @@ class QuantumMiniGolfGame:
                         ex, ey = compute_expectation(
                             self.Xgrid, self.Ygrid, dens, xp, self.be.to_cpu)
                         self._last_ex, self._last_ey = ex, ey
-                        if self.show_info and (n % self.cfg.overlay_every == 0):
+                        if (not self._minimal_annotations) and self.show_info and (n % self.cfg.overlay_every == 0):
                             ex2, ey2, a1, b1, ang = covariance_ellipse(
                                 self.Xgrid,
                                 self.Ygrid,
@@ -2800,14 +2826,17 @@ class QuantumMiniGolfGame:
                             )
                             self.viz.update_overlay_from_stats(
                                 ex2, ey2, a1, b1, ang, show=True)
-                        wave_xs.append(ex)
-                        wave_ys.append(ey)
-                        wx = wave_xs[::self.path_decim] if (
-                            self.cfg.flags.path_decimation and self.path_decim > 1) else wave_xs
-                        wy = wave_ys[::self.path_decim] if (
-                            self.cfg.flags.path_decimation and self.path_decim > 1) else wave_ys
-                        self.viz.wave_path_line.set_data(wx, wy)
-                        self.viz.wave_path_line.set_visible(True)
+                        if self._render_paths:
+                            wave_xs.append(ex)
+                            wave_ys.append(ey)
+                            wx = wave_xs[::self.path_decim] if (
+                                self.cfg.flags.path_decimation and self.path_decim > 1) else wave_xs
+                            wy = wave_ys[::self.path_decim] if (
+                                self.cfg.flags.path_decimation and self.path_decim > 1) else wave_ys
+                            self.viz.wave_path_line.set_data(wx, wy)
+                            self.viz.wave_path_line.set_visible(True)
+                        else:
+                            self.viz.wave_path_line.set_visible(False)
                         if sink_mode == "prob_threshold":
                             p_in = float(self.be.to_cpu(
                                 (dens[self.course.hole_mask]).sum()))
@@ -2935,6 +2964,9 @@ class QuantumMiniGolfGame:
         if not self._mode_allows_measure():
             return
         if self._last_density_cpu is None:
+            return
+        if self._minimal_annotations:
+            print('[perf] Measurement overlay disabled in performance trim mode.')
             return
         if not self.show_info:
             self.show_info = True
