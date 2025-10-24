@@ -4,11 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Decouple the tracker overlay from Matplotlib using a flag">
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
-    </list>
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Draw less often and trim plt work" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -248,7 +244,14 @@
       <option name="project" value="LOCAL" />
       <updated>1761320359743</updated>
     </task>
-    <option name="localTasksCounter" value="22" />
+    <task id="LOCAL-00022" summary="Draw less often and trim plt work">
+      <created>1761321626741</created>
+      <option name="number" value="00022" />
+      <option name="presentableId" value="LOCAL-00022" />
+      <option name="project" value="LOCAL" />
+      <updated>1761321626741</updated>
+    </task>
+    <option name="localTasksCounter" value="23" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -279,6 +282,7 @@
     <MESSAGE value="- Fixing tracking related issues" />
     <MESSAGE value="Performance changes in the variables; Force GPU usage (swap backend ladder)" />
     <MESSAGE value="Decouple the tracker overlay from Matplotlib using a flag" />
-    <option name="LAST_COMMIT_MESSAGE" value="Decouple the tracker overlay from Matplotlib using a flag" />
+    <MESSAGE value="Draw less often and trim plt work" />
+    <option name="LAST_COMMIT_MESSAGE" value="Draw less often and trim plt work" />
   </component>
 </project>

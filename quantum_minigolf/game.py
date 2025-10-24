@@ -101,10 +101,14 @@ class QuantumMiniGolfGame:
         self._shot_count = 0
 
         # visuals
+        overlay_initial = bool(getattr(self.cfg, 'tracker_overlay_initial', False))
+
         self.viz = Visuals(self.Nx, self.Ny, self.hole_center,
                            self.cfg.hole_r, self.cfg.flags, self.cfg)
         if self._trim_visuals or getattr(self.cfg.flags, 'minimal_annotations', False) or not getattr(self.cfg.flags, 'render_paths', True):
             self.viz.apply_performance_trim(self.cfg.flags)
+        if not overlay_initial:
+            self.viz.update_putter_overlay((0.0, 0.0), 0.0, 0.0, 0.0, False)
         self.viz.set_course_patches(self.course.course_patches)
         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
         self.viz.update_title(self._title_text())
@@ -113,7 +117,7 @@ class QuantumMiniGolfGame:
         self.tracker_cfg = None
         self._tracker_timer = None
         self._tracker_decoupled = False
-        self._tracker_overlay_enabled = True
+        self._tracker_overlay_enabled = overlay_initial
         self._tracker_force_disabled = False
         self._tracker_area_valid = True
         self._tracker_last_area = 0.0

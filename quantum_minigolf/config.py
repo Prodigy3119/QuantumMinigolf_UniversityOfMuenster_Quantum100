@@ -127,6 +127,7 @@ class GameConfig:
     tracker_crop_y2: Optional[int] = None
     tracker_calibration_path: Optional[str] = None
     show_control_panel: bool = True
+    tracker_overlay_initial: bool = False
 
     tracker_auto_scale: bool = False
     tracker_max_span_px: float = 220.0
