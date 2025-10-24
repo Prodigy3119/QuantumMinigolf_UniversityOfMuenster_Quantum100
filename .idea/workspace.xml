@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Remove Legend and everything related&#10;- Change LED Recognition Threshold area and standard value&#10;-" />
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Info Overlay and Measurement are not usabel in trim mode">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -293,7 +296,14 @@
       <option name="project" value="LOCAL" />
       <updated>1761331742174</updated>
     </task>
-    <option name="localTasksCounter" value="29" />
+    <task id="LOCAL-00029" summary="Info Overlay and Measurement are not usabel in trim mode">
+      <created>1761332395885</created>
+      <option name="number" value="00029" />
+      <option name="presentableId" value="LOCAL-00029" />
+      <option name="project" value="LOCAL" />
+      <updated>1761332395885</updated>
+    </task>
+    <option name="localTasksCounter" value="30" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -331,6 +341,7 @@
     <MESSAGE value="Changes to slider values, ranges, names, and the control panel" />
     <MESSAGE value="Bug fixes regarding &quot;reset&quot;, &quot;blue box&quot; and *_draw_*" />
     <MESSAGE value="- Remove Legend and everything related&#10;- Change LED Recognition Threshold area and standard value&#10;-" />
-    <option name="LAST_COMMIT_MESSAGE" value="- Remove Legend and everything related&#10;- Change LED Recognition Threshold area and standard value&#10;-" />
+    <MESSAGE value="Info Overlay and Measurement are not usabel in trim mode" />
+    <option name="LAST_COMMIT_MESSAGE" value="Info Overlay and Measurement are not usabel in trim mode" />
   </component>
 </project>

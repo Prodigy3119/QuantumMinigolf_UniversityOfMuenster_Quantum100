@@ -295,14 +295,16 @@ class Visuals:
         self.shot_counter_label.set_visible(False)
 
         self.hole_msg = self.ax.text(
-            Nx / 2, Ny - 6, "Wavefunction hit - perfect shot!",
-            color='purple', fontsize=18, fontweight='bold', ha='center', va='top',
-            bbox=dict(facecolor=(0, 0, 0, 0.6), edgecolor='purple', boxstyle='round,pad=0.35')
+            Nx / 2, Ny / 2, "Quantum Hole in One!",
+            color='purple', fontsize=28, fontweight='bold', ha='center', va='center',
+            bbox=dict(facecolor=(0, 0, 0, 0.72), edgecolor='purple', boxstyle='round,pad=0.6'),
+            zorder=200, clip_on=False
         )
         self.hole_msg_ball = self.ax.text(
-            Nx / 2, Ny - 6, "Hole in One!",
-            color='cyan', fontsize=18, fontweight='bold', ha='center', va='top',
-            bbox=dict(facecolor=(0, 0, 0, 0.6), edgecolor='cyan', boxstyle='round,pad=0.35')
+            Nx / 2, Ny / 2, "Hole in One!",
+            color='cyan', fontsize=28, fontweight='bold', ha='center', va='center',
+            bbox=dict(facecolor=(0, 0, 0, 0.72), edgecolor='cyan', boxstyle='round,pad=0.6'),
+            zorder=200, clip_on=False
         )
         if animated:
             self.hole_msg.set_animated(True)
@@ -367,8 +369,6 @@ class Visuals:
                 self.mode_label,
                 self.class_label,
                 self.shot_counter_label,
-                self.hole_msg,
-                self.hole_msg_ball,
             ]
             for artist in annotation_artists:
                 if artist is not None:
