@@ -238,8 +238,8 @@ def build_config(args):
         smooth_passes=1, vis_interpolation='bilinear',
         display_downsample_factor=3, low_dpi_value=48, target_fps=30,
         debounce_ms=14, path_decimation_stride=3, overlay_every=3,
-        movement_speed_scale=1,
-        shot_time_limit=50,
+        movement_speed_scale=17.5,
+        shot_time_limit=75,
         map_kind='double_slit',
         res_scale=1.0,
         flags=flags,
@@ -252,7 +252,7 @@ def build_config(args):
     if cfg.performance_increase:
         os.environ.setdefault("QUANTUM_MINIGOLF_PERF", "1")
         if "QUANTUM_MINIGOLF_BACKEND" not in os.environ:
-            os.environ["QUANTUM_MINIGOLF_BACKEND"] = "gpu"
+            os.environ["QUANTUM_MINIGOLF_BACKEND"] = "auto"
 
     overlay_arg = getattr(args, "decouple_tracker_overlay", None)
     if overlay_arg is not None:

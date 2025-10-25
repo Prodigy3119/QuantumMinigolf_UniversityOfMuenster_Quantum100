@@ -137,7 +137,6 @@ This reference summarises every configurable variable (`GameConfig` and `Perform
 | `tracker_min_span_px` | Minimum LED spacing to consider valid. | Rejects cramped LED detections. | Accepts shorter tracked spans. |
 | `tracker_overlay_thickness_px` | Baseline overlay thickness in pixels. | Visually thicker putter. | Thinner overlay. |
 | 	racker_coord_margin | Extra padding when clamping tracker coordinates. | Lets overlay drift slightly beyond borders to avoid lag. | Strict clamp that snaps the putter inside the board. |
-| `tracker_area_limit` | Maximum allowed overlay area before suppression. | Larger puts allowed before hits suppressed. | Tight limit used to avoid covering the hole. |
 | `tracker_debug_window` | Show OpenCV debug window. | Visual feedback while tracking. | Keeps desktop clutter-free. |
 | `tracker_crop_x1/track_crop_x2/...` | Manual ROI for the camera frame. | Smaller ROI speeds processing, must include LEDs. | Leave `None` for full-frame capture. |
 | `tracker_calibration_path` | Path to course calibration file. | Loads specific homography. | Auto-search default locations. |
@@ -252,7 +251,6 @@ This reference summarises every configurable variable (`GameConfig` and `Perform
 | `Wall Thickness` | Adjusts `single_wall_thickness_factor`. | Walls bulk up, narrowing channels. | Wider openings through the barrier. |
 | `Tracker Threshold` | Sets `tracker_threshold`. | Ignores dim speckles; needs brighter LEDs. | Accepts dim LEDs but risks noise. |
 | `Tracker Speed` | Controls `tracker_speed_scale`. | Amplifies swing-to-shot power mapping. | Softens swing impact. |
-| `Tracker Max Area` | Sets `tracker_area_limit`. | Allows large overlay area before suppressing hits. | Prevents swings when the club covers too much of the board. |
 
 ---
 

@@ -294,14 +294,15 @@ class Visuals:
         if animated: self.shot_counter_label.set_animated(True)
         self.shot_counter_label.set_visible(False)
 
+        msg_offset = max(6.0, Ny * 0.08)
         self.hole_msg = self.ax.text(
-            Nx / 2, Ny / 2, "Quantum Hole in One!",
+            Nx / 2, Ny / 2 + msg_offset, "Quantum Hole in One!",
             color='purple', fontsize=28, fontweight='bold', ha='center', va='center',
             bbox=dict(facecolor=(0, 0, 0, 0.72), edgecolor='purple', boxstyle='round,pad=0.6'),
             zorder=200, clip_on=False
         )
         self.hole_msg_ball = self.ax.text(
-            Nx / 2, Ny / 2, "Hole in One!",
+            Nx / 2, Ny / 2 - msg_offset, "Hole in One!",
             color='cyan', fontsize=28, fontweight='bold', ha='center', va='center',
             bbox=dict(facecolor=(0, 0, 0, 0.72), edgecolor='cyan', boxstyle='round,pad=0.6'),
             zorder=200, clip_on=False
@@ -407,6 +408,21 @@ class Visuals:
     def ensure_rgba_buffer(self, shape):
         return self._ensure_frame_buffer(shape)
 
+    def set_hole_geometry(self, center, radius):
+        """
+        Update the rendered hole position/size after a map change.
+        """
+        cx, cy = float(center[0]), float(center[1])
+        self.hole_patch.center = (cx, cy)
+        self.hole_patch.radius = float(radius)
+        if self.flags.blitting:
+            self._blit_draw()
+        else:
+            try:
+                self.fig.canvas.draw_idle()
+            except Exception:
+                pass
+
     def get_cmap_lut(self, xp=None):
         if xp is None or xp is np:
             return self._cmap_lut
@@ -428,6 +444,21 @@ class Visuals:
             except Exception:
                 pass
         return self._frame_rgba
+
+    def set_hole_geometry(self, center, radius):
+        """
+        Update the rendered hole position/size after a map change.
+        """
+        cx, cy = float(center[0]), float(center[1])
+        self.hole_patch.center = (cx, cy)
+        self.hole_patch.radius = float(radius)
+        if self.flags.blitting:
+            self._blit_draw()
+        else:
+            try:
+                self.fig.canvas.draw_idle()
+            except Exception:
+                pass
 
     def _coerce_frame_indices(self, frame_cpu):
         if isinstance(frame_cpu, np.ndarray) and frame_cpu.dtype == np.uint8:
@@ -669,9 +700,11 @@ class Visuals:
         self.measure_marker.set_position((mx, my))
         self.measure_marker.set_visible(bool(visible))
 
-    def show_messages(self, wave_hit=False, ball_hit=False):
-        self.hole_msg.set_visible(bool(wave_hit))
-        self.hole_msg_ball.set_visible(bool(ball_hit))
+    def show_messages(self, wave_hit=None, ball_hit=None):
+        if wave_hit is not None:
+            self.hole_msg.set_visible(bool(wave_hit))
+        if ball_hit is not None:
+            self.hole_msg_ball.set_visible(bool(ball_hit))
         if self.flags.blitting:
             self._blit_draw()
         else:

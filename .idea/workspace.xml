@@ -4,9 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Info Overlay and Measurement are not usabel in trim mode">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Changes in the Hole in One Messages">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/VarsAndSliders.md" beforeDir="false" afterPath="$PROJECT_DIR$/VarsAndSliders.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_game.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_game.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -303,7 +307,21 @@
       <option name="project" value="LOCAL" />
       <updated>1761332395885</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="Changes in the Hole in One Messages">
+      <created>1761332710193</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1761332710193</updated>
+    </task>
+    <task id="LOCAL-00031" summary="Changes in the Hole in One Messages">
+      <created>1761407453085</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1761407453085</updated>
+    </task>
+    <option name="localTasksCounter" value="32" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -342,6 +360,7 @@
     <MESSAGE value="Bug fixes regarding &quot;reset&quot;, &quot;blue box&quot; and *_draw_*" />
     <MESSAGE value="- Remove Legend and everything related&#10;- Change LED Recognition Threshold area and standard value&#10;-" />
     <MESSAGE value="Info Overlay and Measurement are not usabel in trim mode" />
-    <option name="LAST_COMMIT_MESSAGE" value="Info Overlay and Measurement are not usabel in trim mode" />
+    <MESSAGE value="Changes in the Hole in One Messages" />
+    <option name="LAST_COMMIT_MESSAGE" value="Changes in the Hole in One Messages" />
   </component>
 </project>
