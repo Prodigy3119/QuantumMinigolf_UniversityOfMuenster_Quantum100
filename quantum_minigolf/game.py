@@ -2744,6 +2744,212 @@ class QuantumMiniGolfGame:
         self.viz.update_title(self._title_text())
         self._shoot(kvec)
 
+    def _advance_classical_segment(self, pos: np.ndarray, vel: np.ndarray, dt: float) -> np.ndarray:
+        """Advance the classical ball while reflecting exactly at contact."""
+        if dt <= 0.0:
+            return pos
+
+        remaining = float(dt)
+        nx_max = float(self.Nx)
+        ny_max = float(self.Ny)
+        ball_r = float(getattr(self.cfg, 'ball_r', 0.0))
+        xmin = max(0.0, min(nx_max, ball_r))
+        xmax = min(nx_max, max(xmin, nx_max - ball_r))
+        ymin = max(0.0, min(ny_max, ball_r))
+        ymax = min(ny_max, max(ymin, ny_max - ball_r))
+        time_eps = 1e-9
+        pos_eps = 1e-4
+        max_reflections = 32
+        iter_count = 0
+
+        inflated_rects = [
+            (
+                float(rx1) - ball_r,
+                float(ry1) - ball_r,
+                float(rx2) + ball_r,
+                float(ry2) + ball_r,
+            )
+            for (rx1, ry1, rx2, ry2) in self.course.solid_rects
+        ]
+
+        def resolve_penetration() -> bool:
+            adjusted = False
+            if pos[0] < xmin:
+                pos[0] = xmin + pos_eps
+                if vel[0] < 0.0:
+                    vel[0] = -vel[0]
+                adjusted = True
+            elif pos[0] > xmax:
+                pos[0] = xmax - pos_eps
+                if vel[0] > 0.0:
+                    vel[0] = -vel[0]
+                adjusted = True
+
+            if pos[1] < ymin:
+                pos[1] = ymin + pos_eps
+                if vel[1] < 0.0:
+                    vel[1] = -vel[1]
+                adjusted = True
+            elif pos[1] > ymax:
+                pos[1] = ymax - pos_eps
+                if vel[1] > 0.0:
+                    vel[1] = -vel[1]
+                adjusted = True
+
+            for rx1i, ry1i, rx2i, ry2i in inflated_rects:
+                if rx1i <= pos[0] <= rx2i and ry1i <= pos[1] <= ry2i:
+                    dl = pos[0] - rx1i
+                    dr = rx2i - pos[0]
+                    dtp = pos[1] - ry1i
+                    db = ry2i - pos[1]
+                    m = min(dl, dr, dtp, db)
+                    if m == dl:
+                        pos[0] = rx1i - pos_eps
+                        if vel[0] > 0.0:
+                            vel[0] = -abs(vel[0])
+                        adjusted = True
+                    elif m == dr:
+                        pos[0] = rx2i + pos_eps
+                        if vel[0] < 0.0:
+                            vel[0] = abs(vel[0])
+                        adjusted = True
+                    elif m == dtp:
+                        pos[1] = ry1i - pos_eps
+                        if vel[1] > 0.0:
+                            vel[1] = -abs(vel[1])
+                        adjusted = True
+                    else:
+                        pos[1] = ry2i + pos_eps
+                        if vel[1] < 0.0:
+                            vel[1] = abs(vel[1])
+                        adjusted = True
+            return adjusted
+
+        for _ in range(4):
+            if not resolve_penetration():
+                break
+
+        while remaining > time_eps and iter_count < max_reflections:
+            iter_count += 1
+            vx = float(vel[0])
+            vy = float(vel[1])
+            if abs(vx) <= time_eps and abs(vy) <= time_eps:
+                break
+
+            px = float(pos[0])
+            py = float(pos[1])
+
+            hit_t = remaining + time_eps
+            hit_normals: list[tuple[float, float]] = []
+
+            def register_hit(t_candidate: float, normal: tuple[float, float]) -> None:
+                nonlocal hit_t, hit_normals
+                if t_candidate < -time_eps or t_candidate > remaining + time_eps:
+                    return
+                t = max(t_candidate, 0.0)
+                if t < hit_t - time_eps:
+                    hit_t = t
+                    hit_normals = [normal]
+                elif abs(t - hit_t) <= time_eps:
+                    hit_normals.append(normal)
+
+            if vx < -time_eps:
+                t = (xmin - px) / vx
+                if t >= -time_eps:
+                    y_at = py + vy * t
+                    if (ymin - pos_eps) <= y_at <= (ymax + pos_eps):
+                        register_hit(t, (1.0, 0.0))
+            if vx > time_eps:
+                t = (xmax - px) / vx
+                if t >= -time_eps:
+                    y_at = py + vy * t
+                    if (ymin - pos_eps) <= y_at <= (ymax + pos_eps):
+                        register_hit(t, (-1.0, 0.0))
+            if vy < -time_eps:
+                t = (ymin - py) / vy
+                if t >= -time_eps:
+                    x_at = px + vx * t
+                    if (xmin - pos_eps) <= x_at <= (xmax + pos_eps):
+                        register_hit(t, (0.0, 1.0))
+            if vy > time_eps:
+                t = (ymax - py) / vy
+                if t >= -time_eps:
+                    x_at = px + vx * t
+                    if (xmin - pos_eps) <= x_at <= (xmax + pos_eps):
+                        register_hit(t, (0.0, -1.0))
+
+            for rx1i, ry1i, rx2i, ry2i in inflated_rects:
+                if vx > time_eps and px <= rx1i - pos_eps:
+                    t = (rx1i - px) / vx
+                    if t >= -time_eps:
+                        y_at = py + vy * t
+                        if ry1i - pos_eps <= y_at <= ry2i + pos_eps:
+                            register_hit(t, (-1.0, 0.0))
+                if vx < -time_eps and px >= rx2i + pos_eps:
+                    t = (rx2i - px) / vx
+                    if t >= -time_eps:
+                        y_at = py + vy * t
+                        if ry1i - pos_eps <= y_at <= ry2i + pos_eps:
+                            register_hit(t, (1.0, 0.0))
+                if vy > time_eps and py <= ry1i - pos_eps:
+                    t = (ry1i - py) / vy
+                    if t >= -time_eps:
+                        x_at = px + vx * t
+                        if rx1i - pos_eps <= x_at <= rx2i + pos_eps:
+                            register_hit(t, (0.0, -1.0))
+                if vy < -time_eps and py >= ry2i + pos_eps:
+                    t = (ry2i - py) / vy
+                    if t >= -time_eps:
+                        x_at = px + vx * t
+                        if rx1i - pos_eps <= x_at <= rx2i + pos_eps:
+                            register_hit(t, (0.0, 1.0))
+
+            if not hit_normals or hit_t >= remaining - time_eps:
+                pos[0] += vx * remaining
+                pos[1] += vy * remaining
+                remaining = 0.0
+                break
+
+            travel = max(hit_t, 0.0)
+            if travel > 0.0:
+                pos[0] += vx * travel
+                pos[1] += vy * travel
+            remaining = max(0.0, remaining - travel)
+
+            seen: set[tuple[float, float]] = set()
+            offset_x = 0.0
+            offset_y = 0.0
+            for normal in hit_normals:
+                key = (round(normal[0], 3), round(normal[1], 3))
+                if key in seen:
+                    continue
+                seen.add(key)
+                nx, ny = normal
+                dot = float(vel[0]) * nx + float(vel[1]) * ny
+                if dot >= 0.0:
+                    continue
+                vel[0] -= 2.0 * dot * nx
+                vel[1] -= 2.0 * dot * ny
+                offset_x += nx
+                offset_y += ny
+
+            offset_norm = math.hypot(offset_x, offset_y)
+            if offset_norm > 0.0:
+                pos[0] += (offset_x / offset_norm) * pos_eps
+                pos[1] += (offset_y / offset_norm) * pos_eps
+
+            resolve_penetration()
+
+        if remaining > time_eps:
+            pos[0] += float(vel[0]) * remaining
+            pos[1] += float(vel[1]) * remaining
+
+        resolve_penetration()
+
+        pos[0] = float(min(max(pos[0], xmin), xmax))
+        pos[1] = float(min(max(pos[1], ymin), ymax))
+        return pos
+
     def _shoot(self, kvec_cpu):
         # Movement speed scaling: modify momentum while keeping the quantum dt stable
         self._stop_playback()
@@ -3010,45 +3216,7 @@ class QuantumMiniGolfGame:
                                 abort_reason = "reset"
                             break
                         step = min(c_dtc, t_target - c_t)
-                        p2 = c_pos + c_v * step
-
-                        # border reflect
-                        if p2[0] < 0:
-                            p2[0] = -p2[0]
-                            c_v[0] = -c_v[0]
-                        elif p2[0] > self.Nx:
-                            p2[0] = 2 * self.Nx - p2[0]
-                            c_v[0] = -c_v[0]
-                        if p2[1] < 0:
-                            p2[1] = -p2[1]
-                            c_v[1] = -c_v[1]
-                        elif p2[1] > self.Ny:
-                            p2[1] = 2 * self.Ny - p2[1]
-                            c_v[1] = -c_v[1]
-
-                        # collide with solids
-                        eps = 1e-3
-                        for (rx1, ry1, rx2, ry2) in self.course.solid_rects:
-                            if rx1 <= p2[0] <= rx2 and ry1 <= p2[1] <= ry2:
-                                dl = abs(p2[0] - rx1)
-                                dr = abs(rx2 - p2[0])
-                                dtp = abs(p2[1] - ry1)
-                                db = abs(ry2 - p2[1])
-                                m = min(dl, dr, dtp, db)
-                                if m == dl:
-                                    p2[0] = rx1 - eps
-                                    c_v[0] = -abs(c_v[0])
-                                elif m == dr:
-                                    p2[0] = rx2 + eps
-                                    c_v[0] = abs(c_v[0])
-                                elif m == dtp:
-                                    p2[1] = ry1 - eps
-                                    c_v[1] = -abs(c_v[1])
-                                else:
-                                    p2[1] = ry2 + eps
-                                    c_v[1] = abs(c_v[1])
-
-                        c_pos = p2
+                        c_pos = self._advance_classical_segment(c_pos, c_v, step)
                         self.ball_pos[0] = float(c_pos[0])
                         self.ball_pos[1] = float(c_pos[1])
                         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
