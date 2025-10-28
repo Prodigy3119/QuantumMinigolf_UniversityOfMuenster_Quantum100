@@ -4,9 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Add a key to cycle the background image between black and the Images in the Folder &quot;BackgroundImages&quot;&#10;- Increase electron label size&#10;- Move the starting position of the wavefront (not the package)">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Fix Border reflection of classical ball">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/calibration.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/calibration.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_game.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_game.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

@@ -35,6 +35,7 @@ def ensure_course_preview(map_kind: str = "double_slit") -> None:
         return
     try:
         import matplotlib  # type: ignore
+        matplotlib.rcParams['toolbar'] = 'none'
     except Exception as exc:  # pragma: no cover
         print(f"[warn] Course preview unavailable (matplotlib import failed: {exc})")
         return

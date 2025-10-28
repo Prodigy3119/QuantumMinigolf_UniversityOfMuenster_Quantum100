@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 import matplotlib
+matplotlib.rcParams['toolbar'] = 'none'
 import numpy as np
 
 from quantum_minigolf.calibration import CalibrationData

@@ -6,7 +6,10 @@ from collections.abc import Callable
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import os
+
+mpl.rcParams['toolbar'] = 'none'
 
 try:
     from matplotlib.widgets import Slider  # type: ignore

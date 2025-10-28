@@ -7,6 +7,9 @@ from matplotlib.patches import Rectangle, Circle, Ellipse, Polygon
 from matplotlib.collections import PatchCollection
 import matplotlib.image as mpimg
 from pathlib import Path
+import matplotlib as mpl
+
+mpl.rcParams['toolbar'] = 'none'
 
 try:  # Optional Qt overlay support
     from matplotlib.backends.qt_compat import QtWidgets, QtCore, QtGui  # type: ignore
