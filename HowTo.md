@@ -105,7 +105,9 @@ G     Toggle mouse swing (ON forces tracker OFF: no virtual putter or tracker hi
 O     Toggle on-screen tracker overlay (hit detection unchanged while tracker is active)
 U     Show/hide control panel window
 L     Toggle interference pattern plot
-D     Play the scripted recording once (if available)
+K     Arm next-shot recording (replays the shot after it finishes)
+V     Record the previous shot via replay
+D     Play back the most recent recording
 #/-   Cycle pre-made multi-stage demos
 H     Print hotkey summary in terminal
 ```

@@ -33,7 +33,7 @@ Follow these steps to start, calibrate, and run the show within one short sessio
 - `c` cycle view (classical ↔ quantum ↔ mixed) | `m` force quantum measurement | `i` toggle info overlay / post-shot measurement.
 - `#` cycle quantum demo course | `-` cycle advanced showcase course | `b` toggle reflect/absorb boundary | `w` swap wave packet/front.
 - `t` switch shot stop (time/friction) | `g` toggle mouse swing | `o` toggle tracker overlay | `u` show/hide control panel | `p` cycle background art.
-- `l` toggle interference profile (after a quantum shot) | `d` play the latest recording (if captured) | `h` print this hotkey list in the console.
+- `l` toggle interference profile (after a quantum shot) | `k` arm/cancel automatic recording for the next shot | `v` record the previous shot via replay | `d` play the latest recording | `h` print this hotkey list in the console.
 
 ## Rapid Troubleshooting
 - **Tracker feed frozen?** Check the console for camera index errors, then relaunch with `--display-tracker` and verify LEDs are within the dashed ROI.

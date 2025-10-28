@@ -138,9 +138,6 @@ class GameConfig:
     # Time limit per shot (simulation seconds); None = no limit
     shot_time_limit: float = 75
 
-    # Video playback configuration
-    video_playback_speed: float = 1.5
-
     # Map + runtime
     map_kind: str = "double_slit"  # default starting map
     res_scale: float = 1.0

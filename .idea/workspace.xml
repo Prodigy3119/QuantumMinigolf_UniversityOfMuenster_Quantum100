@@ -4,12 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Fix Border reflection of classical ball">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="- Hide matplotlib toolbar and windowbar">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/calibration.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/calibration.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/HowTo.md" beforeDir="false" afterPath="$PROJECT_DIR$/HowTo.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Instructions.md" beforeDir="false" afterPath="$PROJECT_DIR$/Instructions.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/RecordVideo.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_game.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_game.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -341,7 +343,14 @@
       <option name="project" value="LOCAL" />
       <updated>1761670016879</updated>
     </task>
-    <option name="localTasksCounter" value="35" />
+    <task id="LOCAL-00035" summary="- Hide matplotlib toolbar and windowbar">
+      <created>1761672293802</created>
+      <option name="number" value="00035" />
+      <option name="presentableId" value="LOCAL-00035" />
+      <option name="project" value="LOCAL" />
+      <updated>1761672293802</updated>
+    </task>
+    <option name="localTasksCounter" value="36" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -356,7 +365,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="- Hotkeys work in Control Panel focus&#10;- &quot;I&quot; also measures if shot was performed&#10;- added &quot;o&quot; hotkey to disable tracker&#10;- updated hotkey list&#10;- Changes in variables (e.g. speed to 2.5)" />
     <MESSAGE value="- Adjust tracker/hit computation&#10;- Added threshold to display club depending on its area&#10;- Disable the tracker in mouse/software mode" />
     <MESSAGE value="Test" />
     <MESSAGE value="updating workspace" />
@@ -381,6 +389,7 @@
     <MESSAGE value="Bug fixed and slider changes (values and removed Tracker Area)" />
     <MESSAGE value="- Changed color of &quot;Quantum Hole in One&quot; &#10;- Added New &quot;WWU_Map&quot;&#10;- &quot;Wall Thickness&quot; slider now affects other maps as well (except WWU Map)&#10;- Changed &quot;Wall Thickness&quot; slider range" />
     <MESSAGE value="- Add a key to cycle the background image between black and the Images in the Folder &quot;BackgroundImages&quot;&#10;- Increase electron label size&#10;- Move the starting position of the wavefront (not the package)" />
-    <option name="LAST_COMMIT_MESSAGE" value="- Add a key to cycle the background image between black and the Images in the Folder &quot;BackgroundImages&quot;&#10;- Increase electron label size&#10;- Move the starting position of the wavefront (not the package)" />
+    <MESSAGE value="- Hide matplotlib toolbar and windowbar" />
+    <option name="LAST_COMMIT_MESSAGE" value="- Hide matplotlib toolbar and windowbar" />
   </component>
 </project>

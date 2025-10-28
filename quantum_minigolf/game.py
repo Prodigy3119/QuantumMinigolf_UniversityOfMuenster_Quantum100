@@ -4,6 +4,7 @@ import math
 import time
 from collections.abc import Callable
 from pathlib import Path
+import copy
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
@@ -25,6 +26,8 @@ from .physics import (
     step_wave, prepare_frame, compute_expectation, covariance_ellipse, sample_from_density
 )
 from .visuals import Visuals
+
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 
 try:  # Matplotlib Qt helper (available when using QtAgg backend)
     from matplotlib.backends.qt_compat import QtWidgets  # type: ignore
@@ -200,13 +203,25 @@ class QuantumMiniGolfGame:
         self._last_phase_cpu = None
         self._interference_profile: np.ndarray | None = None
         self._frame_listeners: list[Callable[["QuantumMiniGolfGame"], None]] = []
+        self._recording_active = False
+        self._recording_frames: list[np.ndarray] = []
+        self._recording_output_path: Path | None = None
+        self._recording_failed = False
+        self._recording_prefix_tag = "[rec]"
+        self._last_recording_path: Path | None = None
+        self._last_recording_is_frames = False
+        self._last_recording_fps = float(max(1.0, getattr(self.cfg, 'target_fps', 30.0)))
+        self._record_next_shot_armed = False
+        self._replay_render_in_progress = False
+        self._live_record_in_progress = False
         self._playback_timer = None
         self._playback_iter = None
         self._playback_image = None
-        self._playback_path: Path | None = None
         self._playback_close = None
         self._playback_hold = False
-        self._video_playback_speed = float(max(0.1, getattr(self.cfg, 'video_playback_speed', 1.0)))
+        self._last_shot_data: dict[str, object] | None = None
+        self._pending_last_shot_data: dict[str, object] | None = None
+        self._replay_capture_mode = False
         self._wavefront_profile = str(getattr(self.cfg, 'wave_initial_profile', 'packet')).lower()
         self._wavefront_active = self._wavefront_profile == 'front'
         self._wavefront_dir = np.array([1.0, 0.0], dtype=np.float32)
@@ -483,6 +498,8 @@ class QuantumMiniGolfGame:
             pass
 
     def _notify_frame_listeners(self):
+        if self._recording_active:
+            self._capture_recording_frame()
         if not self._frame_listeners:
             return
         for cb in tuple(self._frame_listeners):
@@ -490,6 +507,488 @@ class QuantumMiniGolfGame:
                 cb(self)
             except Exception as exc:
                 print(f"[frame-listener] callback error: {exc}")
+
+    def _recording_prefix(self) -> str:
+        tag = getattr(self, '_recording_prefix_tag', "[rec]")
+        return str(tag)
+
+    def _capture_recording_frame(self, initial: bool = False):
+        if not self._recording_active or self._recording_failed:
+            return
+        canvas = self.viz.fig.canvas
+        try:
+            canvas.draw()
+            buf = np.asarray(canvas.buffer_rgba())
+            frame = np.array(buf, copy=True)
+        except Exception as exc:
+            if not self._recording_failed:
+                stage = "initial frame" if initial else "frame"
+                print(f"{self._recording_prefix()} Failed to capture {stage}: {exc}")
+            self._recording_failed = True
+            return
+        frame_rgb = frame[..., :3].copy()
+        self._recording_frames.append(frame_rgb)
+
+    def _finalize_shot_recording(self, *, aborted: bool):
+        if not self._recording_active:
+            return
+        output_path = self._recording_output_path
+        frames = self._recording_frames
+        failed = self._recording_failed
+        self._recording_active = False
+        self._recording_output_path = None
+        self._recording_frames = []
+        self._recording_failed = False
+
+        prefix = self._recording_prefix()
+        if failed or not frames or output_path is None:
+            status = "aborted" if aborted else "complete"
+            print(f"{prefix} Recording {status}, but no frames were captured.")
+            self._recording_prefix_tag = "[rec]"
+            return
+
+        fps = float(getattr(self.cfg, 'recording_fps', getattr(self.cfg, 'target_fps', 30.0) or 30.0))
+        fps = max(1.0, fps)
+
+        try:
+            import imageio  # type: ignore
+            writer = imageio.get_writer(str(output_path), fps=fps)
+            try:
+                for frame in frames:
+                    writer.append_data(frame)
+            finally:
+                writer.close()
+            try:
+                self._last_recording_path = output_path.resolve()
+            except Exception:
+                self._last_recording_path = output_path
+            self._last_recording_is_frames = False
+            self._last_recording_fps = fps
+            note = " (shot aborted)" if aborted else ""
+            print(f"{prefix} Recording saved to '{output_path}'.{note}")
+        except Exception as exc:
+            fallback_dir = output_path.with_suffix('')
+            try:
+                fallback_dir.mkdir(parents=True, exist_ok=True)
+                from matplotlib import image as mpl_image
+                for idx, frame in enumerate(frames):
+                    frame_path = fallback_dir / f"frame_{idx:04d}.png"
+                    mpl_image.imsave(frame_path, frame)
+                frame_paths = sorted(fallback_dir.glob("frame_*.png"))
+                if frame_paths:
+                    try:
+                        self._last_recording_path = fallback_dir.resolve()
+                    except Exception:
+                        self._last_recording_path = fallback_dir
+                    self._last_recording_is_frames = True
+                    self._last_recording_fps = fps
+                print(f"{prefix} Video export failed ({exc}). Saved frames to '{fallback_dir}'.")
+            except Exception as fallback_exc:
+                print(f"{prefix} Failed to export recording: {fallback_exc}")
+        self._recording_prefix_tag = "[rec]"
+
+    def _prepare_recording_destination(self, intent: str, timestamp: float | None = None) -> Path | None:
+        prefix = f"[{intent}]"
+        root_raw = getattr(self.cfg, 'recording_output_dir', None)
+        output_root = Path.cwd() / "ShotRecordings" if root_raw is None else Path(str(root_raw))
+        try:
+            output_root.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            print(f"{prefix} Unable to create recording directory '{output_root}': {exc}")
+            return None
+
+        ts = float(timestamp if timestamp is not None else time.time())
+        base_name = time.strftime("shot_%Y%m%d_%H%M%S", time.localtime(ts))
+        target = output_root / f"{base_name}.mp4"
+        counter = 1
+        while target.exists():
+            target = output_root / f"{base_name}_{counter:02d}.mp4"
+            counter += 1
+        return target
+
+    def _prepare_last_shot_payload(self, kvec_cpu: np.ndarray):
+        if self._replay_capture_mode:
+            return
+        payload: dict[str, object] = {
+            "config": copy.deepcopy(self.cfg),
+            "ball_pos": np.array(self.ball_pos, dtype=np.float32),
+            "mode": self.mode,
+            "movement_speed_factor": float(getattr(self, "_movement_speed_factor", 1.0)),
+            "wavefront_profile": str(getattr(self, "_wavefront_profile", "packet")),
+            "wavefront_active": bool(getattr(self, "_wavefront_active", False)),
+            "wavefront_dir": np.array(getattr(self, "_wavefront_dir", np.array([1.0, 0.0], dtype=np.float32)), dtype=np.float32),
+            "wavefront_kmag": float(getattr(self, "_wavefront_kmag", 0.0)),
+            "boost_factor0": float(getattr(self, "_boost_factor0", 0.0)),
+            "rng_state": copy.deepcopy(self.rng.bit_generator.state),
+            "np_state": np.random.get_state(),
+            "kvec": np.array(kvec_cpu, dtype=np.float32),
+            "timestamp": time.time(),
+            "multiple_shots_enabled": bool(getattr(self, "_multiple_shots_enabled", False)),
+            "perf_mode": bool(getattr(self, "perf_mode", False)),
+            "render_paths": bool(getattr(self, "_render_paths", True)),
+            "minimal_annotations": bool(getattr(self, "_minimal_annotations", False)),
+            "show_info": bool(self.show_info),
+            "show_interference": bool(self.show_interference),
+        }
+        self._pending_last_shot_data = payload
+
+    def _arm_next_shot_recording(self):
+        prefix = f"[{LIVE_RECORD_HOTKEY}]"
+        if self._replay_render_in_progress:
+            print(f"{prefix} Wait for the current recording to finish.")
+            return
+        if self._record_next_shot_armed:
+            self._record_next_shot_armed = False
+            print(f"{prefix} Live recording disarmed.")
+            return
+        if self.shot_in_progress:
+            print(f"{prefix} Armed. The current shot will finish first; the next one will be recorded afterwards.")
+        else:
+            print(f"{prefix} Armed. The next shot will be recorded afterwards.")
+        self._record_next_shot_armed = True
+
+    def _record_last_shot(
+        self,
+        *,
+        intent: str = 'v',
+        allow_aborted: bool = True,
+    ) -> bool:
+        prefix = f"[{intent}]"
+        if self._replay_render_in_progress:
+            print(f"{prefix} Recording already in progress; please wait.")
+            return False
+        if self.shot_in_progress:
+            print(f"{prefix} Finish the current shot before recording.")
+            return False
+        if self._playback_timer is not None or self._playback_image is not None or self._playback_hold:
+            self._stop_playback()
+        data = self._last_shot_data
+        if data is None:
+            print(f"{prefix} No shot available to record yet.")
+            return False
+        if data.get("aborted", False) and not allow_aborted:
+            print(f"{prefix} Last shot was aborted; skipping recording.")
+            return False
+
+        try:
+            cfg_snapshot = copy.deepcopy(data["config"])  # type: ignore[arg-type]
+        except Exception as exc:
+            print(f"{prefix} Unable to restore configuration for replay: {exc}")
+            return False
+
+        cfg_snapshot.use_tracker = False
+        cfg_snapshot.enable_mouse_swing = False
+        cfg_snapshot.log_data = False
+        cfg_snapshot.show_control_panel = False
+        try:
+            cfg_snapshot.flags.blitting = False
+            cfg_snapshot.flags.adaptive_draw = False
+            cfg_snapshot.flags.display_downsample = False
+            cfg_snapshot.flags.event_debounce = False
+        except Exception:
+            pass
+
+        timestamp = float(data.get("timestamp", time.time()))
+        target = self._prepare_recording_destination(intent, timestamp)
+        if target is None:
+            return False
+
+        np_state_current = np.random.get_state()
+        interactive_state = plt.isinteractive()
+        if interactive_state:
+            plt.ioff()
+
+        replay_game: QuantumMiniGolfGame | None = None
+        self._replay_render_in_progress = True
+        print(f"{prefix} Re-simulating last shot for recording...")
+        try:
+            replay_game = QuantumMiniGolfGame(cfg_snapshot)
+            replay_game._replay_capture_mode = True
+            replay_game._recording_prefix_tag = prefix
+
+            fig = replay_game.viz.fig
+
+            manager = getattr(fig.canvas, "manager", None)
+            window = getattr(manager, "window", None) if manager is not None else None
+            if window is not None:
+                try:
+                    window.withdraw()  # hide the OS window so the user doesn't see it
+                except Exception:
+                    try:
+                        window.setVisible(False)
+                    except Exception:
+                        pass
+
+            try:
+                fig.canvas.stop_event_loop()
+            except Exception:
+                pass
+
+            ball_pos = np.array(data["ball_pos"], dtype=np.float32)  # type: ignore[arg-type]
+            replay_game.ball_pos = ball_pos.copy()
+            replay_game.viz.set_ball_center(float(ball_pos[0]), float(ball_pos[1]))
+            replay_game._set_mode(str(data.get("mode", replay_game.mode)))
+            replay_game._movement_speed_factor = float(data.get("movement_speed_factor", replay_game._movement_speed_factor))
+            replay_game._render_paths = bool(data.get("render_paths", replay_game._render_paths))
+            replay_game._minimal_annotations = bool(data.get("minimal_annotations", replay_game._minimal_annotations))
+            replay_game._wavefront_profile = str(data.get("wavefront_profile", replay_game._wavefront_profile))
+            replay_game._wavefront_active = bool(data.get("wavefront_active", replay_game._wavefront_active))
+            replay_game._wavefront_dir = np.array(data.get("wavefront_dir", replay_game._wavefront_dir), dtype=np.float32)
+            replay_game._wavefront_kmag = float(data.get("wavefront_kmag", replay_game._wavefront_kmag))
+            replay_game._boost_factor0 = float(data.get("boost_factor0", getattr(replay_game, "_boost_factor0", 0.0)))
+            replay_game._multiple_shots_enabled = bool(data.get("multiple_shots_enabled", replay_game._multiple_shots_enabled))
+            replay_game.perf_mode = bool(data.get("perf_mode", replay_game.perf_mode))
+            replay_game.show_info = bool(data.get("show_info", replay_game.show_info))
+            replay_game.show_interference = bool(data.get("show_interference", replay_game.show_interference))
+
+            try:
+                replay_game.rng.bit_generator.state = copy.deepcopy(data["rng_state"])  # type: ignore[arg-type]
+            except Exception:
+                pass
+            try:
+                np.random.set_state(data["np_state"])  # type: ignore[arg-type]
+            except Exception:
+                pass
+
+            replay_game._recording_output_path = target
+            replay_game._recording_frames = []
+            replay_game._recording_active = True
+            replay_game._recording_failed = False
+            replay_game._capture_recording_frame(initial=True)
+
+            kvec = np.array(data["kvec"], dtype=np.float32)  # type: ignore[arg-type]
+            replay_game._shoot(kvec)
+            replay_game._finalize_shot_recording(aborted=bool(data.get("aborted", False)))
+
+            if replay_game._last_recording_path is not None:
+                self._last_recording_path = replay_game._last_recording_path
+                self._last_recording_is_frames = replay_game._last_recording_is_frames
+                self._last_recording_fps = replay_game._last_recording_fps
+                print(f"{prefix} Replay saved to '{self._last_recording_path}'.")
+                return True
+            return False
+        finally:
+            self._replay_render_in_progress = False
+            np.random.set_state(np_state_current)
+            if replay_game is not None:
+                try:
+                    replay_game._stop_playback()
+                except Exception:
+                    pass
+                try:
+                    plt.close(replay_game.viz.fig)
+                except Exception:
+                    pass
+        if interactive_state:
+            plt.ion()
+        return False
+
+    def _auto_record_last_shot(self):
+        prefix = f"[{LIVE_RECORD_HOTKEY}]"
+        self._live_record_in_progress = True
+        try:
+            recorded = self._record_last_shot(intent=LIVE_RECORD_HOTKEY, allow_aborted=False)
+            if not recorded:
+                print(f"{prefix} Automatic recording skipped.")
+        finally:
+            self._live_record_in_progress = False
+
+    def _play_last_recording(self):
+        # Don't start playback if we're still recording a shot
+        if self.shot_in_progress:
+            print('[d] Finish the current shot before playing a recording.')
+            return
+
+        # If something is already playing, stop it instead of starting a new one
+        if self._playback_timer is not None or self._playback_image is not None:
+            self._stop_playback()
+            return
+
+        path = self._last_recording_path
+        if path is None:
+            print('[d] No recording available yet.')
+            return
+
+        fps = float(max(1.0, self._last_recording_fps))
+        frame_iter = None
+        close_fn = None
+
+        # Case 1: recording is a folder of PNG frames
+        if self._last_recording_is_frames:
+            frame_paths = sorted(Path(path).glob("frame_*.png"))
+            if not frame_paths:
+                print(f"[d] Recording frames missing in '{path}'.")
+                return
+
+            def _frame_generator():
+                from matplotlib import image as mpl_image  # local import
+                for frame_path in frame_paths:
+                    try:
+                        img = mpl_image.imread(frame_path)
+                    except Exception as exc:
+                        print(f"[d] Failed to read frame '{frame_path.name}': {exc}")
+                        continue
+                    frame_arr = np.asarray(img)
+
+                    # Normalize dtype to uint8 RGB
+                    if frame_arr.dtype != np.uint8:
+                        if np.issubdtype(frame_arr.dtype, np.floating):
+                            frame_arr = np.clip(frame_arr * 255.0, 0.0, 255.0).astype(np.uint8)
+                        else:
+                            frame_arr = frame_arr.astype(np.uint8, copy=False)
+                    if frame_arr.shape[-1] == 4:
+                        frame_arr = frame_arr[..., :3]
+                    yield frame_arr
+
+            frame_iter = _frame_generator()
+
+        # Case 2: recording is a video file (e.g. .mp4)
+        else:
+            try:
+                import imageio.v3 as iio  # type: ignore
+            except Exception:
+                print('[d] The imageio package is required to play back recordings.')
+                return
+
+            # Try to read metadata (fps, etc.). Let imageio auto-detect backend.
+            try:
+                meta = iio.immeta(path)
+                fps = float(meta.get('fps', fps) or fps)
+            except Exception:
+                # Couldn't read metadata; just fall back to stored fps
+                fps = fps
+
+            # Try to create an iterator over frames. Again, no explicit plugin.
+            try:
+                frame_iter = iio.imiter(path)
+            except Exception as exc:
+                print(f"[d] Unable to open recording: {exc}")
+                return
+
+            # Some iterators expose a close() method; keep it so we can clean up later
+            close_fn = getattr(frame_iter, 'close', None)
+
+        # Try to grab the first frame so we can draw it immediately
+        try:
+            first_frame = next(frame_iter)
+        except StopIteration:
+            print('[d] Recording is empty.')
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
+            return
+        except Exception as exc:
+            print(f"[d] Failed reading recording: {exc}")
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
+            return
+
+        # Hide the existing axes/overlays to show the video frame instead
+        self.viz.ax.set_visible(False)
+        if self.show_interference:
+            self.viz.set_interference_visible(False)
+
+        # Normalize first frame to uint8 RGB for figimage
+        first_frame_np = np.asarray(first_frame)
+        if first_frame_np.dtype != np.uint8:
+            if np.issubdtype(first_frame_np.dtype, np.floating):
+                first_frame_np = np.clip(first_frame_np * 255.0, 0.0, 255.0).astype(np.uint8)
+            else:
+                first_frame_np = first_frame_np.astype(np.uint8, copy=False)
+        if first_frame_np.shape[-1] == 4:
+            first_frame_np = first_frame_np[..., :3]
+
+        # Stash playback state on self
+        self._playback_iter = frame_iter
+        self._playback_close = close_fn
+        self._playback_hold = False
+        self._playback_image = self.viz.fig.figimage(first_frame_np, origin='upper', zorder=50)
+
+        # Drive playback with a matplotlib timer using the (possibly updated) fps
+        interval_ms = max(1, int(round(1000.0 / max(1.0, fps))))
+        timer = self.viz.fig.canvas.new_timer(interval=interval_ms)
+        timer.add_callback(self._advance_playback_frame)
+        self._playback_timer = timer
+        timer.start()
+
+        # Request redraw
+        self.viz.fig.canvas.draw_idle()
+
+        print('[d] Playing recording. Press d again to stop playback.')
+
+    def _advance_playback_frame(self):
+        if self._playback_iter is None or self._playback_image is None:
+            self._stop_playback()
+            return
+        try:
+            frame = next(self._playback_iter)
+        except StopIteration:
+            self._finalize_playback_hold()
+            return
+        except Exception as exc:
+            print(f"[d] Playback stopped: {exc}")
+            self._stop_playback()
+            return
+        frame_np = np.asarray(frame)
+        if frame_np.dtype != np.uint8:
+            if np.issubdtype(frame_np.dtype, np.floating):
+                frame_np = np.clip(frame_np * 255.0, 0.0, 255.0).astype(np.uint8)
+            else:
+                frame_np = frame_np.astype(np.uint8, copy=False)
+        if frame_np.shape[-1] == 4:
+            frame_np = frame_np[..., :3]
+        self._playback_image.set_data(frame_np)
+        self.viz.fig.canvas.draw_idle()
+
+    def _finalize_playback_hold(self):
+        if self._playback_timer is not None:
+            try:
+                self._playback_timer.stop()
+            except Exception:
+                pass
+            self._playback_timer = None
+        if callable(self._playback_close):
+            try:
+                self._playback_close()
+            except Exception:
+                pass
+        self._playback_iter = None
+        self._playback_close = None
+        self._playback_hold = True
+        print('[d] Playback finished. Press d to close the preview.')
+
+    def _stop_playback(self):
+        if self._playback_timer is not None:
+            try:
+                self._playback_timer.stop()
+            except Exception:
+                pass
+            self._playback_timer = None
+        if self._playback_iter is not None and callable(self._playback_close):
+            try:
+                self._playback_close()
+            except Exception:
+                pass
+        self._playback_iter = None
+        self._playback_close = None
+        if self._playback_image is not None:
+            try:
+                self._playback_image.remove()
+            except Exception:
+                pass
+            self._playback_image = None
+        self._playback_hold = False
+        self.viz.ax.set_visible(True)
+        if self.show_interference and self._interference_profile is not None:
+            self.viz.set_interference_visible(True)
+            self.viz.update_interference_pattern(self._interference_profile)
+        else:
+            self.viz.fig.canvas.draw_idle()
 
     def _render_wave_density(self, density_cpu):
         if density_cpu is None:
@@ -1262,8 +1761,10 @@ class QuantumMiniGolfGame:
                         pass
         elif key == 'l':
             self._toggle_interference_pattern()
+        elif key == 'v':
+            self._record_last_shot()
         elif key == 'd':
-            self._play_recording()
+            self._play_last_recording()
         elif key == 'h':
             self._print_hotkey_help()
 
@@ -1927,13 +2428,26 @@ class QuantumMiniGolfGame:
         panel_state = 'open' if self._config_panel_active else 'closed'
         interference_state = 'visible' if self.show_interference else 'hidden'
         tracker_overlay_state = 'visible' if self._tracker_overlay_enabled else 'hidden'
-        if self._playback_path:
-            try:
-                playback_state = Path(self._playback_path).name
-            except Exception:
-                playback_state = 'ready'
+        if self._replay_render_in_progress:
+            replay_record_state = 'recording'
+        elif self._last_shot_data is not None:
+            replay_record_state = 'ready'
         else:
-            playback_state = 'idle'
+            replay_record_state = 'none'
+        if self._live_record_in_progress:
+            live_record_state = 'recording'
+        elif self._record_next_shot_armed:
+            live_record_state = 'armed'
+        else:
+            live_record_state = 'idle'
+        if self._playback_timer is not None:
+            playback_state = 'playing'
+        elif self._playback_hold:
+            playback_state = 'paused'
+        elif self._last_recording_path is not None:
+            playback_state = 'ready'
+        else:
+            playback_state = 'none'
 
         entries = [
             ("q", "Quit the game", None),
@@ -1952,7 +2466,9 @@ class QuantumMiniGolfGame:
             ("u", "Toggle control panel window", panel_state),
             ("p", "Cycle background image", self._background_state_label()),
             ("l", "Toggle interference profile view", interference_state),
-            ("d", "Play latest recording (if available)", playback_state),
+            (LIVE_RECORD_HOTKEY, "Record next shot automatically", live_record_state),
+            ("v", "Record last shot (replay)", replay_record_state),
+            ("d", "Play last recording", playback_state),
             ("h", "Show this hotkey list", None),
         ]
         lines = []
@@ -2081,143 +2597,6 @@ class QuantumMiniGolfGame:
         print(f"[{key}] {label}: {BLUE}{old}{RESET} \u2192 {GREEN}{new}{RESET}")
 
     # ----- playback helpers
-    def _play_recording(self, path: str | Path = None):
-        if path is None:
-            path = Path(os.getcwd()) / "QuantumMinigolfDemo.mp4"
-
-        if self.shot_in_progress:
-            print('[d] Finish the current shot before playing a recording.')
-            return
-        if self._playback_timer is not None or self._playback_image is not None:
-            self._stop_playback()
-            return
-
-        target = Path(path)
-        if not target.exists():
-            print(f"[d] Recording not found: {target}")
-            return
-        try:
-            import imageio.v3 as iio  # type: ignore
-        except Exception:
-            print('[d] The imageio package is required to play back recordings.')
-            return
-
-        try:
-            meta = iio.immeta(target, plugin='ffmpeg')
-            fps = float(meta.get('fps', 30.0) or 30.0)
-        except Exception:
-            fps = 30.0
-        fps = max(1.0, fps)
-        playback_speed = float(max(0.1, getattr(self.cfg, 'video_playback_speed', self._video_playback_speed)))
-        self._video_playback_speed = playback_speed
-
-        try:
-            frame_iter = iio.imiter(target, plugin='ffmpeg')
-        except Exception as exc:
-            print(f"[d] Unable to open recording: {exc}")
-            return
-
-        try:
-            first_frame = next(frame_iter)
-        except StopIteration:
-            print('[d] Recording is empty.')
-            return
-        except Exception as exc:
-            print(f"[d] Failed reading recording: {exc}")
-            return
-
-        self._playback_iter = frame_iter
-        self._playback_close = getattr(frame_iter, 'close', None)
-        self._playback_path = target
-        self.viz.ax.set_visible(False)
-        if self.show_interference:
-            self.viz.set_interference_visible(False)
-        self._playback_image = self.viz.fig.figimage(first_frame, origin='upper', zorder=50)
-        interval_ms = max(1, int(round(1000.0 / (fps * playback_speed))))
-        timer = self.viz.fig.canvas.new_timer(interval=interval_ms)
-        timer.add_callback(self._advance_playback_frame)
-        self._playback_timer = timer
-        self._playback_hold = False
-        timer.start()
-        self.viz.fig.canvas.draw_idle()
-        print('[d] Playing recording. Press d again to stop playback.')
-
-    def _advance_playback_frame(self):
-        if self._playback_iter is None or self._playback_image is None:
-            self._stop_playback()
-            return
-        try:
-            frame = next(self._playback_iter)
-        except StopIteration:
-            self._finalize_playback_hold()
-            return
-        except Exception as exc:
-            print(f"[d] Playback stopped: {exc}")
-            self._stop_playback()
-            return
-        self._playback_image.set_data(frame)
-        self.viz.fig.canvas.draw_idle()
-
-    def _finalize_playback_hold(self):
-        if self._playback_timer is not None:
-            try:
-                self._playback_timer.stop()
-            except Exception:
-                pass
-            self._playback_timer = None
-        if self._playback_iter is not None:
-            close_fn = getattr(self._playback_iter, 'close', None)
-            if callable(close_fn):
-                try:
-                    close_fn()
-                except Exception:
-                    pass
-        if callable(self._playback_close):
-            try:
-                self._playback_close()
-            except Exception:
-                pass
-        self._playback_iter = None
-        self._playback_close = None
-        self._playback_hold = True
-        print('[d] Playback finished. Press d to close the preview.')
-
-    def _stop_playback(self):
-        if self._playback_timer is not None:
-            try:
-                self._playback_timer.stop()
-            except Exception:
-                pass
-            self._playback_timer = None
-        if self._playback_iter is not None:
-            close_fn = getattr(self._playback_iter, 'close', None)
-            if callable(close_fn):
-                try:
-                    close_fn()
-                except Exception:
-                    pass
-        if callable(self._playback_close):
-            try:
-                self._playback_close()
-            except Exception:
-                pass
-        if self._playback_image is not None:
-            try:
-                self._playback_image.remove()
-            except Exception:
-                pass
-            self._playback_image = None
-        self._playback_close = None
-        self._playback_iter = None
-        self._playback_path = None
-        self._playback_hold = False
-        self.viz.ax.set_visible(True)
-        if self.show_interference and self._interference_profile is not None:
-            self.viz.set_interference_visible(True)
-            self.viz.update_interference_pattern(self._interference_profile)
-        else:
-            self.viz.fig.canvas.draw_idle()
-
     def _toggle_config_panel(self):
         if Slider is None:
             print('[control panel] Matplotlib Slider widgets unavailable; control panel disabled.')
@@ -2973,6 +3352,8 @@ class QuantumMiniGolfGame:
         if not simulate_classical and not simulate_wave:
             return
 
+        self._prepare_last_shot_payload(kvec_cpu)
+
         shot_stop_mode = str(getattr(self.cfg, 'shot_stop_mode', 'time')).lower()
         friction_mode = shot_stop_mode == 'friction'
         sink_mode = str(getattr(self.cfg, 'sink_rule', 'prob_threshold')).lower()
@@ -3419,8 +3800,31 @@ class QuantumMiniGolfGame:
             if self._pending_measure_after_shot:
                 self._measure_now()
             self._pending_measure_after_shot = False
+            if self._recording_active:
+                self._capture_recording_frame()
+                self._finalize_shot_recording(aborted=bool(aborted))
 
         finally:
+            if not self._replay_capture_mode and self._pending_last_shot_data is not None:
+                payload = self._pending_last_shot_data
+                payload["aborted"] = bool(aborted)
+                payload["show_info"] = bool(self.show_info)
+                payload["show_interference"] = bool(self.show_interference)
+                self._last_shot_data = payload
+            auto_requested = False
+            if not self._replay_capture_mode and self._record_next_shot_armed:
+                auto_requested = True
+            if not self._replay_capture_mode:
+                self._pending_last_shot_data = None
+                self._record_next_shot_armed = False
+            if auto_requested:
+                if self._last_shot_data is not None and not bool(self._last_shot_data.get("aborted", False)):
+                    self._auto_record_last_shot()
+                else:
+                    print(f"[{LIVE_RECORD_HOTKEY}] Shot aborted; automatic recording skipped.")
+            if self._recording_active:
+                self._capture_recording_frame()
+                self._finalize_shot_recording(aborted=bool(aborted))
             # restore dt exponents
             if self.tracker:
                 self._update_tracker_reference()

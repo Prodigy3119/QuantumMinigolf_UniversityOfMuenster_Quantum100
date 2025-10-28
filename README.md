@@ -116,6 +116,8 @@ Flags are grouped by theme; defaults are shown in parentheses.
 | `T` | Toggle shot termination mode (`time` vs `friction`). |
 | `G` | Enable/disable mouse swing control (useful when tracker is active). |
 | `U` | Show or hide the in-game configuration panel (sliders). |
+| `K` | Arm or cancel automatic recording for the next shot (replays it after completion). |
+| `V` | Re-simulate and record the previous shot. |
 | `D` | Play back the most recent recording (if available). |
 | `H` | Print the full hotkey help message to the console. |
 
