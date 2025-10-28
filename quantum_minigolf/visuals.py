@@ -83,6 +83,13 @@ class Visuals:
         self.flags = flags
         self.cfg = cfg
 
+        # tracker overlay / patch state referenced early by game setup; initialize up front
+        self._tracker_overlay_widget = None
+        self._tracker_overlay_warned = False
+        # placeholders for artists referenced early by the game setup
+        self.putter_patch = None
+        self.pcoll = None
+
         dpi = (cfg.low_dpi_value if flags.low_dpi else None)
         self.fig, self.ax = plt.subplots(figsize=(8.5, 5.5), dpi=dpi)
         self.fig.patch.set_facecolor('black')
@@ -93,15 +100,11 @@ class Visuals:
         self.ax.set_xticks([]); self.ax.set_yticks([])
 
         bg_path = getattr(cfg, 'background_image_path', None)
+        self._background_path: Path | None = None
         self.bg_im = None
         if bg_path:
-            candidate = Path(str(bg_path)).expanduser()
-            if not candidate.is_absolute():
-                candidate = Path.cwd() / candidate
-            if not candidate.exists():
-                module_candidate = Path(__file__).resolve().parent / str(bg_path)
-                candidate = module_candidate if module_candidate.exists() else None
-            if candidate and candidate.exists():
+            candidate = self._resolve_background_candidate(bg_path)
+            if candidate is not None:
                 try:
                     bg = mpimg.imread(candidate)
                     self.bg_im = self.ax.imshow(
@@ -113,12 +116,13 @@ class Visuals:
                         animated=False,
                     )
                     self.bg_im.set_alpha(float(getattr(cfg, 'background_image_alpha', 1.0)))
+                    self._background_path = candidate
                     print(f"[info] background image loaded from '{candidate}'")
                 except Exception as exc:
                     print(f"[warn] could not load background image '{candidate}': {exc}")
             else:
                 print(f"[info] background image not found ('{bg_path}'); using default background")
-        background_loaded = self.bg_im is not None
+        self._background_loaded = self.bg_im is not None
 
         animated = bool(flags.blitting)
         interp = 'nearest' if flags.pixel_upscale else str(getattr(cfg, "vis_interpolation", "bilinear"))
@@ -127,19 +131,12 @@ class Visuals:
         self.wave_vmin = 0.0
         self.wave_vmax = 0.04
         self._wave_norm_range = max(self.wave_vmax - self.wave_vmin, 1e-6)
-        cmap = plt.get_cmap('magma', 256)
-        lut = (cmap(np.linspace(0.0, 1.0, 256)) * 255.0).astype(np.uint8)
-        if background_loaded:
-            alpha_curve = np.linspace(0.0, 1.0, 256, dtype=np.float32)
-            alpha_vals = np.clip((alpha_curve ** 0.55) * 255.0, 0.0, 255.0).astype(np.uint8)
-            alpha_vals[0] = 0
-            lut[:, 3] = alpha_vals
-        else:
-            lut[:, 3] = 255  # enforce opaque alpha
-        self._cmap_lut = lut
         self._cmap_lut_gpu = {}
+        self._overlay_alpha: float | None = None
+        self._apply_wave_palette(self._background_loaded)
         init_rgba = np.zeros((Ny, Nx, 4), dtype=np.uint8)
-        init_rgba[..., 3] = 0 if background_loaded else 255
+        if not self._background_loaded:
+            init_rgba[..., 3] = 255
         self._frame_rgba = init_rgba
         self.im = self.ax.imshow(
             init_rgba,
@@ -147,10 +144,7 @@ class Visuals:
             interpolation=interp, animated=animated
         )
         self.im.set_zorder(0)
-        overlay_default = 0.65 if background_loaded else 0.95
-        overlay_alpha = float(getattr(cfg, 'wave_overlay_alpha', overlay_default))
-        overlay_alpha = float(min(max(overlay_alpha, 0.0), 1.0))
-        self.im.set_alpha(overlay_alpha)
+        self._update_wave_overlay_alpha(frame_has_content=False)
         if flags.pixel_upscale:
             try:
                 self.im.set_resample(False)
@@ -158,7 +152,7 @@ class Visuals:
                 pass
 
         # obstacles collection (set later via set_course_patches)
-        self.pcoll = None
+        # (self.pcoll already defaults to None; keep reference for clarity)
 
         # border
         self.border = Rectangle((1, 1), Nx - 2, Ny - 2, fill=False,
@@ -186,7 +180,8 @@ class Visuals:
             zorder=10,
         )
         self.ax.add_patch(self.ball_patch)
-        if animated: self.ball_patch.set_animated(True)
+        if animated:
+            self.ball_patch.set_animated(True)
         self.ball_patch.set_visible(True)
 
         self.indicator_patch = Circle((0, 0), radius=float(cfg.indicator_r),
@@ -194,7 +189,8 @@ class Visuals:
                                       edgecolor='black', linewidth=0.6, zorder=11)
         self.ax.add_patch(self.indicator_patch)
         self.indicator_patch.set_visible(False)
-        if animated: self.indicator_patch.set_animated(True)
+        if animated:
+            self.indicator_patch.set_animated(True)
 
         # ---------- path overlays ----------
         self.class_path_line, = self.ax.plot([], [], color='white', lw=2.0, linestyle='--', label='Classical path')
@@ -210,22 +206,26 @@ class Visuals:
                                           markerfacecolor='white', markeredgecolor='black',
                                           linestyle='None')
         self.class_marker.set_visible(False)
-        if animated: self.class_marker.set_animated(True)
+        if animated:
+            self.class_marker.set_animated(True)
 
         self.wave_end_marker, = self.ax.plot([], [], marker='o', markersize=6,
                                              markerfacecolor='lightskyblue', markeredgecolor='white',
                                              linestyle='None')
         self.wave_end_marker.set_visible(False)
-        if animated: self.wave_end_marker.set_animated(True)
+        if animated:
+            self.wave_end_marker.set_animated(True)
 
-        # measurement marker (text + point)
-        self.measure_point, = self.ax.plot([], [], marker=None, markersize=0,
-                                           color='cyan', linestyle='None')
-        if animated: self.measure_point.set_animated(True)
-        self.measure_marker = self.ax.text(0, 0, r'$e^-$', color='cyan', fontsize=12,
-                                           ha='left', va='bottom')
+        # measurement marker (text only, no filled marker)
+        self.measure_point, = self.ax.plot([], [], marker='None', linestyle='None')
+        if animated:
+            self.measure_point.set_animated(True)
+        self.measure_point.set_visible(False)
+        self.measure_marker = self.ax.text(0, 0, r'$e^-$', color='cyan', fontsize=24,
+                                           ha='center', va='center')
         self.measure_marker.set_visible(False)
-        if animated: self.measure_marker.set_animated(True)
+        if animated:
+            self.measure_marker.set_animated(True)
 
         # wave crosshair + sigma ellipses
         self.wave_cross_hx, = self.ax.plot([], [], color='cyan', lw=1.0)
@@ -238,8 +238,10 @@ class Visuals:
                                   edgecolor='lightskyblue', linewidth=1.2, linestyle='--')
         self.sigma2_ell = Ellipse((0, 0), 1, 1, angle=0, fill=False,
                                   edgecolor='lightskyblue', linewidth=1.2, linestyle='--')
-        self.sigma1_ell.set_visible(False); self.sigma2_ell.set_visible(False)
-        self.ax.add_patch(self.sigma1_ell); self.ax.add_patch(self.sigma2_ell)
+        self.sigma1_ell.set_visible(False)
+        self.sigma2_ell.set_visible(False)
+        self.ax.add_patch(self.sigma1_ell)
+        self.ax.add_patch(self.sigma2_ell)
         if animated:
             self.sigma1_ell.set_animated(True)
             self.sigma2_ell.set_animated(True)
@@ -251,7 +253,8 @@ class Visuals:
                                     edgecolor=(0.2, 0.8, 1.0, 0.95), linewidth=1.5)
         self.putter_patch.set_visible(False)
         self.ax.add_patch(self.putter_patch)
-        if animated: self.putter_patch.set_animated(True)
+        if animated:
+            self.putter_patch.set_animated(True)
         self._last_putter_state: dict[str, object] = {
             "visible": False,
             "center": None,
@@ -259,8 +262,6 @@ class Visuals:
             "thickness": 0.0,
             "angle_deg": 0.0,
         }
-        self._tracker_overlay_widget = None
-        self._tracker_overlay_warned = False
         if (
             getattr(cfg, 'decouple_tracker_overlay', False)
             and getattr(cfg, 'use_tracker', False)
@@ -273,25 +274,29 @@ class Visuals:
             6, Ny - 4, "", color='white', fontsize=12, fontweight='bold',
             va='top', ha='left', path_effects=[pe.withStroke(linewidth=2.5, foreground='black')]
         )
-        if animated: self.mode_label.set_animated(True)
+        if animated:
+            self.mode_label.set_animated(True)
 
         self._wave_label = self.ax.text(
             0, 0, "", color='lightskyblue', fontsize=10, va='bottom', ha='left',
             path_effects=[pe.withStroke(linewidth=2, foreground='black')]
         )
         self._wave_label.set_visible(False)
-        if animated: self._wave_label.set_animated(True)
+        if animated:
+            self._wave_label.set_animated(True)
 
         self.class_label = self.ax.text(
             Nx - 4, Ny - 4, "", color='white', fontsize=10, va='top', ha='right'
         )
-        if animated: self.class_label.set_animated(True)
+        if animated:
+            self.class_label.set_animated(True)
 
         self.shot_counter_label = self.ax.text(
             Nx - 4, Ny - 4, "", color='purple', fontsize=12, fontweight='bold',
             va='top', ha='right', path_effects=[pe.withStroke(linewidth=2.5, foreground='black')]
         )
-        if animated: self.shot_counter_label.set_animated(True)
+        if animated:
+            self.shot_counter_label.set_animated(True)
         self.shot_counter_label.set_visible(False)
 
         msg_offset = max(6.0, Ny * 0.08)
@@ -355,22 +360,175 @@ class Visuals:
         if flags.blitting:
             self.fig.canvas.mpl_connect('resize_event', self._handle_resize)
 
+    def _apply_wave_palette(self, background_loaded: bool) -> None:
+        cmap = plt.get_cmap('magma', 256)
+        lut = (cmap(np.linspace(0.0, 1.0, 256)) * 255.0).astype(np.uint8)
+        if background_loaded:
+            alpha_curve = np.linspace(0.0, 1.0, 256, dtype=np.float32)
+            alpha_vals = np.clip((alpha_curve ** 0.55) * 255.0, 0.0, 255.0).astype(np.uint8)
+            alpha_vals[0] = 0
+            lut[:, 3] = alpha_vals
+        else:
+            lut[:, 3] = 255
+        self._cmap_lut = lut
+        self._cmap_lut_gpu.clear()
+
+    def _update_wave_overlay_alpha(self, *, frame_has_content: bool | None = None) -> None:
+        if not hasattr(self, 'im') or self.im is None:
+            return
+        background_loaded = bool(getattr(self, '_background_loaded', False))
+        overlay_default = 0.65 if background_loaded else 0.95
+        raw_alpha = getattr(self.cfg, 'wave_overlay_alpha', overlay_default)
+        try:
+            overlay_alpha = float(raw_alpha)
+        except Exception:
+            overlay_alpha = overlay_default
+        overlay_alpha = float(min(max(overlay_alpha, 0.0), 1.0))
+        self._overlay_alpha = overlay_alpha
+        if frame_has_content is None:
+            buf = getattr(self, '_frame_rgba', None)
+            if isinstance(buf, np.ndarray) and buf.ndim == 3 and buf.shape[-1] == 4:
+                frame_has_content = bool(np.any(buf[..., 3]))
+            else:
+                frame_has_content = False
+        target_alpha = overlay_alpha
+        if background_loaded and not frame_has_content:
+            target_alpha = 0.0
+        try:
+            self.im.set_alpha(target_alpha)
+        except Exception:
+            pass
+
+    def set_background_image(self, path: Path | str | None) -> bool:
+        candidate: Path | None = None
+        image_data = None
+        if path:
+            candidate = self._resolve_background_candidate(path)
+            if candidate is not None:
+                try:
+                    image_data = mpimg.imread(candidate)
+                except Exception as exc:
+                    print(f"[warn] failed to load background image '{candidate}': {exc}")
+                    candidate = None
+                    image_data = None
+            else:
+                print(f"[warn] background image '{path}' not found; reverting to default.")
+
+        if image_data is not None and candidate is not None:
+            interp = str(getattr(self.cfg, "vis_interpolation", "bilinear"))
+            if self.bg_im is None:
+                self.bg_im = self.ax.imshow(
+                    image_data,
+                    origin='lower',
+                    extent=[0, self.Nx, 0, self.Ny],
+                    interpolation=interp,
+                    zorder=-10,
+                    animated=False,
+                )
+            else:
+                self.bg_im.set_data(image_data)
+                self.bg_im.set_extent([0, self.Nx, 0, self.Ny])
+                self.bg_im.set_visible(True)
+            self.bg_im.set_alpha(float(getattr(self.cfg, 'background_image_alpha', 1.0)))
+            try:
+                self._background_path = candidate.resolve()
+            except Exception:
+                self._background_path = candidate
+            self._background_loaded = True
+            print(f"[info] background image active: '{self._background_path}'")
+        else:
+            if self.bg_im is not None:
+                try:
+                    self.bg_im.remove()
+                except Exception:
+                    try:
+                        self.bg_im.set_visible(False)
+                    except Exception:
+                        pass
+                self.bg_im = None
+            self._background_path = None
+            self._background_loaded = False
+
+        self._apply_wave_palette(self._background_loaded)
+        self._update_wave_overlay_alpha()
+        try:
+            if self.flags.blitting:
+                self._blit_draw()
+            else:
+                self.fig.canvas.draw_idle()
+        except Exception:
+            pass
+
+        return bool(image_data is not None or path is None)
+
+    def current_background_path(self) -> Path | None:
+        return self._background_path
+
+    @staticmethod
+    def _normalise_background_path(path: Path | str) -> Path:
+        raw = str(path).strip().strip('"').strip("'")
+        if len(raw) >= 2 and raw[1] == ':' and (len(raw) == 2 or raw[2] not in ('/', '\\')):
+            raw = raw[:2] + '\\' + raw[2:]
+        return Path(raw).expanduser()
+
+    def _resolve_background_candidate(self, path: Path | str) -> Path | None:
+        source = self._normalise_background_path(path)
+        candidates: list[Path] = []
+        seen: set[str] = set()
+
+        def enqueue(p: Path) -> None:
+            key = str(p)
+            if key in seen:
+                return
+            seen.add(key)
+            candidates.append(p)
+
+        module_dir = Path(__file__).resolve().parent
+        project_dir = module_dir.parent
+
+        if source.is_absolute():
+            enqueue(source)
+        else:
+            enqueue(Path.cwd() / source)
+            enqueue(module_dir / source)
+            enqueue(project_dir / source)
+
+        name = source.name or Path(str(path)).name
+        if name:
+            bg_dirs = [
+                Path.cwd() / "BackgroundImages",
+                module_dir / "BackgroundImages",
+                project_dir / "BackgroundImages",
+            ]
+            for directory in bg_dirs:
+                enqueue(directory / name)
+
+        for cand in candidates:
+            try:
+                if cand.exists():
+                    return cand.resolve()
+            except Exception:
+                if cand.exists():
+                    return cand
+        return None
+
     def apply_performance_trim(self, flags):
         render_paths = bool(getattr(flags, 'render_paths', True))
         minimal_ann = bool(getattr(flags, 'minimal_annotations', False))
         disabled = []
 
         if not render_paths:
-            for artist in (self.class_path_line, self.wave_path_line):
+            for name in ("class_path_line", "wave_path_line"):
+                artist = getattr(self, name, None)
                 if artist is not None:
                     artist.set_visible(False)
                     disabled.append(artist)
 
         if minimal_ann:
             annotation_artists = [
-                self.mode_label,
-                self.class_label,
-                self.shot_counter_label,
+                getattr(self, 'mode_label', None),
+                getattr(self, 'class_label', None),
+                getattr(self, 'shot_counter_label', None),
             ]
             for artist in annotation_artists:
                 if artist is not None:
@@ -408,21 +566,6 @@ class Visuals:
 
     def ensure_rgba_buffer(self, shape):
         return self._ensure_frame_buffer(shape)
-
-    def set_hole_geometry(self, center, radius):
-        """
-        Update the rendered hole position/size after a map change.
-        """
-        cx, cy = float(center[0]), float(center[1])
-        self.hole_patch.center = (cx, cy)
-        self.hole_patch.radius = float(radius)
-        if self.flags.blitting:
-            self._blit_draw()
-        else:
-            try:
-                self.fig.canvas.draw_idle()
-            except Exception:
-                pass
 
     def get_cmap_lut(self, xp=None):
         if xp is None or xp is np:
@@ -496,19 +639,30 @@ class Visuals:
                 pass
         else:
             self.im.stale = True
+        if plot_wave:
+            has_content = bool(rgba.ndim == 3 and rgba.shape[-1] == 4 and np.any(rgba[..., 3]))
+        else:
+            has_content = False
+        self._update_wave_overlay_alpha(frame_has_content=has_content)
         if self.flags.blitting:
             self._blit_draw()
         else:
             self.fig.canvas.draw_idle()
 
     def set_ball_center(self, x, y):
+        if self.ball_patch is None:
+            return
         self.ball_patch.center = (float(x), float(y))
 
     def set_ball_visible(self, visible):
+        if self.ball_patch is None:
+            return
         self.ball_patch.set_visible(bool(visible))
 
     def set_wave_visible(self, visible):
         self.im.set_visible(bool(visible))
+        if visible:
+            self._update_wave_overlay_alpha()
         if self.flags.blitting:
             self._blit_draw()
         else:
@@ -646,6 +800,19 @@ class Visuals:
             self._tracker_overlay_widget = overlay_widget
         decoupled = decouple_requested and (overlay_widget is not None)
 
+        putter_patch = self.putter_patch
+        if putter_patch is None:
+            if overlay_widget is not None and decoupled:
+                overlay_widget.clear_polygon()
+            if self.flags.blitting:
+                self._blit_draw()
+            else:
+                try:
+                    self.fig.canvas.draw_idle()
+                except Exception:
+                    pass
+            return
+
         state_center = (cx, cy) if (visible or decoupled) else None
         overlay_visible = bool(visible and not decoupled)
         self._last_putter_state = {
@@ -668,8 +835,8 @@ class Visuals:
                         pass
                 else:
                     overlay_widget.clear_polygon()
-            if self.putter_patch.get_visible():
-                self.putter_patch.set_visible(False)
+            if putter_patch.get_visible():
+                putter_patch.set_visible(False)
                 if self.flags.blitting:
                     self._blit_draw()
                 else:
@@ -677,7 +844,7 @@ class Visuals:
             return
 
         if not visible:
-            self.putter_patch.set_visible(False)
+            putter_patch.set_visible(False)
             if self.flags.blitting:
                 self._blit_draw()
             else:
@@ -685,8 +852,8 @@ class Visuals:
             return
 
         pts = self._build_putter_corners(cx, cy, length_f, thickness_f, angle_f)
-        self.putter_patch.set_xy(pts)
-        self.putter_patch.set_visible(True)
+        putter_patch.set_xy(pts)
+        putter_patch.set_visible(True)
         if self.flags.blitting:
             self._blit_draw()
         else:
@@ -696,8 +863,9 @@ class Visuals:
         return dict(self._last_putter_state)
 
     def set_measure_point(self, mx, my, visible):
-        self.measure_point.set_data([mx], [my])
-        self.measure_point.set_visible(bool(visible))
+        if self.measure_point is not None:
+            self.measure_point.set_data([mx], [my])
+            self.measure_point.set_visible(False)
         self.measure_marker.set_position((mx, my))
         self.measure_marker.set_visible(bool(visible))
 

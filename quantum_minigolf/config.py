@@ -77,6 +77,7 @@ class GameConfig:
     wavefront_transition_len: float = 6.0
     wavefront_sigma_y: float = 6.0
     wavefront_sigma_forward: float = 6.0
+    wavefront_start_offset: float = 3.0
 
     # Shot termination
     shot_stop_mode: str = "time"  # "time" | "friction"

@@ -111,6 +111,29 @@ class QuantumMiniGolfGame:
         self.viz.set_ball_center(self.ball_pos[0], self.ball_pos[1])
         self.viz.update_title(self._title_text())
         self._update_shot_counter()
+
+        self._background_cycle = self._build_background_cycle()
+        self._background_index = 0
+        current_bg = self.viz.current_background_path()
+        if current_bg is not None:
+            idx = self._find_background_index(current_bg)
+            if idx is None:
+                self._background_cycle.insert(1, current_bg)
+                self._background_index = 1
+            else:
+                self._background_index = idx
+        elif getattr(self.cfg, 'background_image_path', None):
+            cfg_path = Path(str(self.cfg.background_image_path)).expanduser()
+            idx = self._find_background_index(cfg_path)
+            if idx is None:
+                try:
+                    resolved = cfg_path.resolve()
+                except Exception:
+                    resolved = cfg_path
+                self._background_cycle.insert(1, resolved)
+                self._background_index = 1
+            else:
+                self._background_index = idx
         self.tracker = None
         self.tracker_cfg = None
         self._tracker_timer = None
@@ -497,17 +520,19 @@ class QuantumMiniGolfGame:
             perp = np.array([-dir_vec[1], dir_vec[0]], dtype=np.float32)
             s = (Xg - x0) * dir_vec[0] + (Yg - y0) * dir_vec[1]
             p = (Xg - x0) * perp[0] + (Yg - y0) * perp[1]
-            s_pos = np.maximum(s, 0.0)
+            offset = float(max(0.0, getattr(self.cfg, 'wavefront_start_offset', 0.0)))
+            s_shift = s + offset
+            s_pos = np.maximum(s_shift, 0.0)
             forward_gauss = np.exp(-(s_pos ** 2) /
                                    (2.0 * sigma_forward * sigma_forward)).astype(np.float32)
-            transition = 0.5 * (1.0 + np.tanh(s / trans_len)).astype(np.float32)
+            transition = 0.5 * (1.0 + np.tanh(s_shift / trans_len)).astype(np.float32)
             envelope_dir = forward_gauss * transition
             envelope_perp = np.exp(-(p ** 2) /
                                    (2.0 * sigma_y * sigma_y)).astype(np.float32)
             amp = np.clip(envelope_dir * envelope_perp, 0.0, None)
             kmax = float(self.be.to_cpu(self.k_max))
             kmag = 0.5 * (self.cfg.kmin_frac + self.cfg.kmax_frac) * kmax
-            stripes = 0.5 * (1.0 + np.cos(kmag * s)).astype(np.float32)
+            stripes = 0.5 * (1.0 + np.cos(kmag * s_shift)).astype(np.float32)
             dens = (amp ** 2) * stripes
             dens /= dens.sum() + 1e-12
             self._render_wave_density(dens)
@@ -1221,6 +1246,17 @@ class QuantumMiniGolfGame:
             self._toggle_tracker_overlay()
         elif key == 'u':
             self._toggle_config_panel()
+        elif key == 'p':
+            self._cycle_background()
+            toolbar = getattr(e.canvas, 'toolbar', None)
+            if toolbar is not None and getattr(toolbar, 'mode', '') == 'pan/zoom':
+                try:
+                    toolbar.pan()
+                except Exception:
+                    try:
+                        toolbar.mode = ''
+                    except Exception:
+                        pass
         elif key == 'l':
             self._toggle_interference_pattern()
         elif key == 'd':
@@ -1228,7 +1264,6 @@ class QuantumMiniGolfGame:
         elif key == 'h':
             self._print_hotkey_help()
 
-    # ----- map / reset / info
     def _toggle_map(self):
         if self.shot_in_progress:
             return
@@ -1912,6 +1947,7 @@ class QuantumMiniGolfGame:
             ("g", "Toggle mouse swing control", mouse_state),
             ("o", "Toggle tracker overlay visibility", tracker_overlay_state),
             ("u", "Toggle control panel window", panel_state),
+            ("p", "Cycle background image", self._background_state_label()),
             ("l", "Toggle interference profile view", interference_state),
             ("d", "Play latest recording (if available)", playback_state),
             ("h", "Show this hotkey list", None),
@@ -1923,6 +1959,117 @@ class QuantumMiniGolfGame:
             else:
                 lines.append(f"  {key:<3} - {desc}")
         print("\nHotkeys:\n" + "\n".join(lines) + "\n")
+
+    def _build_background_cycle(self) -> list[Path | None]:
+        choices: list[Path | None] = [None]
+        seen: set[Path] = set()
+        search_dirs: list[Path] = []
+        custom_dir = getattr(self.cfg, 'background_cycle_dir', None)
+        if custom_dir:
+            search_dirs.append(Path(str(custom_dir)).expanduser())
+        search_dirs.append(Path.cwd() / "BackgroundImages")
+        search_dirs.append(Path(__file__).resolve().parent.parent / "BackgroundImages")
+        suffixes = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp"}
+        for directory in search_dirs:
+            try:
+                resolved_dir = directory.resolve()
+            except Exception:
+                resolved_dir = directory
+            if not resolved_dir.is_dir():
+                continue
+            for child in sorted(resolved_dir.iterdir()):
+                if not child.is_file():
+                    continue
+                if child.suffix.lower() not in suffixes:
+                    continue
+                try:
+                    resolved = child.resolve()
+                except Exception:
+                    resolved = child
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                choices.append(resolved)
+        cfg_path = getattr(self.cfg, 'background_image_path', None)
+        if cfg_path:
+            try:
+                resolved_cfg = Path(str(cfg_path)).expanduser().resolve()
+            except Exception:
+                resolved_cfg = Path(str(cfg_path)).expanduser()
+            if resolved_cfg.is_file() and resolved_cfg not in seen:
+                choices.append(resolved_cfg)
+        return choices
+
+    def _find_background_index(self, target: Path | None) -> int | None:
+        if target is None:
+            return 0 if getattr(self, '_background_cycle', None) else None
+        try:
+            target_resolved = Path(str(target)).resolve()
+        except Exception:
+            target_resolved = Path(str(target))
+        for idx, entry in enumerate(self._background_cycle):
+            if entry is None:
+                continue
+            if self._paths_equal(entry, target_resolved):
+                return idx
+        return None
+
+    @staticmethod
+    def _paths_equal(a: Path, b: Path) -> bool:
+        try:
+            return a.resolve() == b.resolve()
+        except Exception:
+            return a == b
+
+    def _cycle_background(self) -> None:
+        if not self._background_cycle:
+            self._background_cycle = [None]
+        attempts = 0
+        total = len(self._background_cycle) or 1
+        while attempts < total:
+            self._background_index = (self._background_index + 1) % len(self._background_cycle)
+            target = self._background_cycle[self._background_index]
+            ok = self.viz.set_background_image(target)
+            if ok:
+                if target is None:
+                    self.cfg.background_image_path = None
+                    print("[bg] Background set to black.")
+                else:
+                    try:
+                        resolved = target.resolve()
+                    except Exception:
+                        resolved = target
+                    self.cfg.background_image_path = str(resolved)
+                    print(f"[bg] Background set to '{resolved.name}'.")
+                return
+            problematic = self._background_cycle.pop(self._background_index)
+            if not self._background_cycle:
+                self._background_cycle = [None]
+                self._background_index = 0
+                self.viz.set_background_image(None)
+                self.cfg.background_image_path = None
+                print("[bg] Reverting to black background (no valid images).")
+                return
+            if self._background_index >= len(self._background_cycle):
+                self._background_index = 0
+            if problematic is not None:
+                try:
+                    name = problematic.name
+                except Exception:
+                    name = str(problematic)
+                print(f"[bg] Skipping invalid background '{name}'.")
+            total = len(self._background_cycle)
+            attempts += 1
+        print("[bg] Unable to change background (no valid images).")
+
+    def _background_state_label(self) -> str:
+        path = self.viz.current_background_path()
+        if path is None:
+            return "black"
+        try:
+            return Path(path).name
+        except Exception:
+            return str(path)
 
     def _announce_switch(self, key: str, label: str, old, new):
         BLUE = "\033[34m\033[4m"
@@ -2732,10 +2879,12 @@ class QuantumMiniGolfGame:
                     perp = np.array([-dir_vec[1], dir_vec[0]], dtype=np.float32)
                     s = (Xg - x0) * dir_vec[0] + (Yg - y0) * dir_vec[1]
                     p = (Xg - x0) * perp[0] + (Yg - y0) * perp[1]
-                    s_pos = np.maximum(s, 0.0)
+                    offset = float(max(0.0, getattr(self.cfg, 'wavefront_start_offset', 0.0)))
+                    s_shift = s + offset
+                    s_pos = np.maximum(s_shift, 0.0)
                     forward_gauss = np.exp(-(s_pos ** 2) /
                                            (2 * (sigma_forward ** 2))).astype(np.float32)
-                    transition = 0.5 * (1.0 + np.tanh(s / trans_len)).astype(np.float32)
+                    transition = 0.5 * (1.0 + np.tanh(s_shift / trans_len)).astype(np.float32)
                     envelope_dir = forward_gauss * transition
                     envelope_perp = np.exp(-(p ** 2) /
                                            (2 * (sigma_y ** 2))).astype(np.float32)
