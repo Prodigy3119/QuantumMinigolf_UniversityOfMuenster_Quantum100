@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import numpy as np
 from matplotlib.patches import Rectangle
 from typing import List, Tuple
@@ -82,6 +83,14 @@ class Course:
             W = (self.cfg.absorb_strength * (m ** 2)).astype(np.float32)
         return W
 
+    def _thickness_scales(self) -> tuple[float, float]:
+        thickness = float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 2.5))
+        width_scale = float(np.clip(thickness ** 0.6, 0.2, 3.0))
+        weight = float(np.clip(getattr(self.cfg, 'tunneling_thickness_weight', 1.0), 0.0, 1.0))
+        power = float(self.cfg.barrier_thickness_power * (1.0 + weight))
+        height_scale = float(np.clip(thickness ** power, 1e-3, 1e6))
+        return width_scale, height_scale
+
     def _hole_mask(self) -> np.ndarray:
         Xc, Yc = np.meshgrid(np.arange(self.Nx, dtype=np.float32),
                              np.arange(self.Ny, dtype=np.float32), indexing='xy')
@@ -98,7 +107,9 @@ class Course:
 
         self._build_common_border(V)
         cx = Nx // 2
-        wall_w = max(2, self.cfg.center_wall_width)
+        width_scale, height_scale = self._thickness_scales()
+        wall_w_base = max(2, self.cfg.center_wall_width)
+        wall_w = max(2, int(round(wall_w_base * width_scale)))
 
         if kind == "single_wall":
             x1, y1, x2, y2 = self._apply_single_wall(V, cx, Ny)
@@ -109,9 +120,14 @@ class Course:
             slit_h = max(4, self.cfg.slit_height)
             slit_sep = max(6, self.cfg.slit_sep)
             margin = int(Ny * 0.08)
-            x1, x2 = cx - wall_w // 2, cx + wall_w // 2
+            half = wall_w // 2
+            x1 = max(3, cx - half)
+            x2 = min(self.Nx - 3, cx + half + (wall_w % 2))
+            if x2 <= x1:
+                x1 = max(3, cx - 1)
+                x2 = min(self.Nx - 3, cx + 1)
             y1, y2 = margin, Ny - margin
-            V[y1:y2, x1:x2] = self.cfg.V_wall
+            V[y1:y2, x1:x2] = self.cfg.V_wall * height_scale
             cy = Ny // 2
             s1y1 = max(y1, cy - slit_sep // 2 - slit_h // 2)
             s1y2 = min(y2, cy - slit_sep // 2 + slit_h // 2)
@@ -127,9 +143,14 @@ class Course:
         elif kind == "single_slit":
             slit_h = max(4, self.cfg.slit_height)
             margin = int(Ny * 0.08)
-            x1, x2 = cx - wall_w // 2, cx + wall_w // 2
+            half = wall_w // 2
+            x1 = max(3, cx - half)
+            x2 = min(self.Nx - 3, cx + half + (wall_w % 2))
+            if x2 <= x1:
+                x1 = max(3, cx - 1)
+                x2 = min(self.Nx - 3, cx + 1)
             y1, y2 = margin, Ny - margin
-            V[y1:y2, x1:x2] = self.cfg.V_wall
+            V[y1:y2, x1:x2] = self.cfg.V_wall * height_scale
             cy = Ny // 2
             sy1 = max(y1, cy - slit_h // 2)
             sy2 = min(y2, cy + slit_h // 2)
@@ -137,6 +158,91 @@ class Course:
 
             if sy1 > y1: patches.append(Rectangle((x1, y1), x2 - x1, sy1 - y1)); solids.append((x1, y1, x2, sy1))
             if y2 > sy2: patches.append(Rectangle((x1, sy2), x2 - x1, y2 - sy2)); solids.append((x1, sy2, x2, y2))
+
+        elif kind == "Uni_Logo":
+            def add_rect(
+                xf0: float,
+                xf1: float,
+                yf0: float,
+                yf1: float,
+                *,
+                scale_x: bool = True,
+                scale_y: bool = False,
+                anchor_right: bool = False,
+                anchor_left: bool = False,
+                anchor_top: bool = False,
+                anchor_bottom: bool = False,
+            ):
+                xf0 = float(np.clip(xf0, 0.0, 1.0))
+                xf1 = float(np.clip(xf1, 0.0, 1.0))
+                yf0 = float(np.clip(yf0, 0.0, 1.0))
+                yf1 = float(np.clip(yf1, 0.0, 1.0))
+                if xf1 <= xf0 or yf1 <= yf0:
+                    return
+
+                width = max(1e-6, xf1 - xf0)
+                height = max(1e-6, yf1 - yf0)
+
+                if scale_x:
+                    if anchor_right and not anchor_left:
+                        x2f = xf1
+                        new_width = width * width_scale
+                        x1f = x2f - new_width
+                    elif anchor_left and not anchor_right:
+                        x1f = xf0
+                        new_width = width * width_scale
+                        x2f = x1f + new_width
+                    else:
+                        cx = 0.5 * (xf0 + xf1)
+                        half_w = 0.5 * width * width_scale
+                        x1f = cx - half_w
+                        x2f = cx + half_w
+                else:
+                    x1f, x2f = xf0, xf1
+
+                if scale_y:
+                    if anchor_top and not anchor_bottom:
+                        y2f = yf1
+                        new_height = height * width_scale
+                        y1f = y2f - new_height
+                    elif anchor_bottom and not anchor_top:
+                        y1f = yf0
+                        new_height = height * width_scale
+                        y2f = y1f + new_height
+                    else:
+                        cy = 0.5 * (yf0 + yf1)
+                        half_h = 0.5 * height * width_scale
+                        y1f = cy - half_h
+                        y2f = cy + half_h
+                else:
+                    y1f, y2f = yf0, yf1
+
+                x1f = float(np.clip(x1f, 0.0, 1.0))
+                x2f = float(np.clip(x2f, 0.0, 1.0))
+                y1f = float(np.clip(y1f, 0.0, 1.0))
+                y2f = float(np.clip(y2f, 0.0, 1.0))
+                if x2f <= x1f or y2f <= y1f:
+                    return
+
+                x1 = int(math.floor(x1f * Nx))
+                x2 = int(math.ceil(x2f * Nx))
+                y1 = int(math.floor(y1f * Ny))
+                y2 = int(math.ceil(y2f * Ny))
+                x1 = max(1, min(x1, Nx - 1))
+                x2 = max(x1 + 1, min(x2, Nx))
+                y1 = max(1, min(y1, Ny - 1))
+                y2 = max(y1 + 1, min(y2, Ny))
+                V[y1:y2, x1:x2] = self.cfg.V_wall * height_scale
+                patches.append(Rectangle((x1, y1), x2 - x1, y2 - y1))
+                solids.append((x1, y1, x2, y2))
+
+            add_rect(0.3259, 0.3708, 0.4914, 0.5057)  # shifted top spine
+            add_rect(0.3883, 0.4098, 0.4671, 0.5300)  # shifted mid spine connector
+            add_rect(0.4799, 0.5248, 0.4457, 0.5514)  # shifted base spine hub
+            add_rect(0.5196, 0.5625, 0.0343, 0.3943)  # shifted lower block
+            add_rect(0.5196, 0.5625, 0.6029, 0.9629)  # shifted upper block
+            add_rect(0.6044, 0.6258, 0.0343, 0.9643)  # inner vertical bar
+            add_rect(0.7096, 0.7544, 0.0343, 0.9643, anchor_right=True)  # fixed outer right wall
 
         elif kind == "no_obstacle":
             pass
@@ -176,9 +282,8 @@ class Course:
         self._last_dt = dt
 
     def _apply_single_wall(self, V: np.ndarray, cx: int, Ny: int):
-        thickness = float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 5.0))
+        width_scale, height_scale = self._thickness_scales()
         base_width = max(1, self.cfg.single_wall_width)
-        width_scale = float(np.clip(thickness ** 0.6, 0.2, 3.0))
         w = max(1, int(round(base_width * width_scale)))
         x1 = max(3, cx - w)
         x2 = min(self.Nx - 3, cx + w)
@@ -188,9 +293,6 @@ class Course:
         y1 = int(Ny * 0.02)
         y2 = int(Ny * 0.98)
 
-        weight = float(np.clip(getattr(self.cfg, 'tunneling_thickness_weight', 1.0), 0.0, 1.0))
-        power = float(self.cfg.barrier_thickness_power * (1.0 + weight))
-        height_scale = float(np.clip(thickness ** power, 1e-3, 1e6))
         V[y1:y2, x1:x2] = self.cfg.V_wall * height_scale
         return x1, y1, x2, y2
 

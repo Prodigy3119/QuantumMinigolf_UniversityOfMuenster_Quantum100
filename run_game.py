@@ -167,7 +167,7 @@ def _run_calibration_helper(script_name: str) -> int:
     return int(completed.returncode or 0)
 
 MAP_CHOICES = [
-    'double_slit', 'single_slit', 'single_wall', 'no_obstacle'
+    'double_slit', 'single_slit', 'single_wall', 'Uni_Logo', 'no_obstacle'
 ]
 MODE_CHOICES = ['classical', 'quantum', 'mixed']
 COURSE_CHOICES = ['quantum_demo', 'advanced_showcase']
@@ -374,7 +374,7 @@ def parse_args():
     parser.add_argument('--course', choices=COURSE_CHOICES, help='Start in a guided course')
     parser.add_argument('--wave-profile', choices=WAVE_CHOICES, help='Initial wave profile')
     parser.add_argument('--stop-mode', choices=STOP_CHOICES, help='Shot stop criterion')
-    parser.add_argument('--wall-thickness', type=float, help='Single-wall thickness factor (0.05 - 5.0)')
+    parser.add_argument('--wall-thickness', type=float, help='Single-wall thickness factor (0.05 - 2.5)')
     parser.add_argument('--movement-speed', type=float, help='Movement speed scale')
     parser.add_argument('--shot-time', type=float, help='Shot time limit (<=0 for infinity)')
     parser.add_argument('--sink-threshold', type=float, help='Sink probability threshold (0-1)')

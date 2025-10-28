@@ -91,7 +91,7 @@ class GameConfig:
     # Bias (toward hole)
     boost_hole_probability: bool = True
     boost_hole_probability_factor: float = 0.0
-    boost_hole_probability_increment: float = 0.04
+    boost_hole_probability_increment: float = 0.02
     boost_hole_probability_autoincrement_on_measure: bool = True
 
     # Visibility

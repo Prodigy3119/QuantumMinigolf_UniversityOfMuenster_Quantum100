@@ -330,8 +330,7 @@ class QuantumMiniGolfGame:
             'double_slit': 'double slit',
             'single_slit': 'single slit',
             'single_wall': 'wall',
-            
-            
+            'Uni_Logo': 'Uni logo',
             'no_obstacle': 'no obstacle'
         }.get(self.cfg.map_kind, self.cfg.map_kind)
         return f"Quantum Mini-Golf - map: {label}"
@@ -1233,7 +1232,7 @@ class QuantumMiniGolfGame:
     def _toggle_map(self):
         if self.shot_in_progress:
             return
-        order = ['double_slit', 'single_slit', 'single_wall', 'no_obstacle']
+        order = ['double_slit', 'single_slit', 'single_wall', 'Uni_Logo', 'no_obstacle']
         try:
             idx = order.index(self.cfg.map_kind)
         except ValueError:
@@ -1749,7 +1748,7 @@ class QuantumMiniGolfGame:
             self.cfg.wave_initial_profile = preset['wave_profile']
 
         if 'single_wall_thickness_factor' in preset:
-            self.cfg.single_wall_thickness_factor = float(np.clip(preset['single_wall_thickness_factor'], 0.05, 5.0))
+            self.cfg.single_wall_thickness_factor = float(np.clip(preset['single_wall_thickness_factor'], 0.05, 2.5))
             if self._config_panel_active and 'wall' in self._panel_sliders:
                 self._panel_updating = True
                 try:
@@ -2122,7 +2121,7 @@ class QuantumMiniGolfGame:
         slider_specs = [
             ('move', 'Move Speed',     2.0, 25.0, float(self.cfg.movement_speed_scale),    0.1, '#9467bd', self._on_movement_speed_change),
             ('time', 'Shot Time',      10.0, 200.0, float(self.cfg.shot_time_limit or 75.0),    5.0, '#8c564b', self._on_shot_time_limit_change),
-            ('wall', 'Wall Thickness', 0.05,5.0,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
+            ('wall', 'Wall Thickness', 0.05,2.5,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
             ('tracker_thresh', 'LED Recognition Threshold', 1.0, 250.0, float(getattr(self.cfg, 'tracker_threshold', 55)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
             ('tracker_speed',  'Putter Speed Increase', 0.25, 4.0, float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6)), 0.05, '#e377c2', self._on_tracker_speed_scale_change),
             ('tracker_size',  'Putter Size',      0.1, 1.5, float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.3))), 0.05, '#1f77b4', self._on_tracker_size_scale_change),
@@ -2228,7 +2227,7 @@ class QuantumMiniGolfGame:
             'sink': float(self.cfg.sink_prob_threshold),
             'move': float(np.clip(self.cfg.movement_speed_scale, self._movement_slider_bounds[0], self._movement_slider_bounds[1])),
             'time': float(np.clip(self.cfg.shot_time_limit if self.cfg.shot_time_limit is not None else 75.0, 10.0, 200.0)),
-            'wall': float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 5.0)),
+            'wall': float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 2.5)),
             'tracker_thresh': float(np.clip(getattr(self.cfg, 'tracker_threshold', 55), 1.0, 250.0)),
             'tracker_speed': float(np.clip(ratio, 0.25, 4.0)),
             'tracker_size': float(np.clip(getattr(self.cfg, 'tracker_length_scale', 0.3), 0.1, 1.5)),
@@ -2346,9 +2345,9 @@ class QuantumMiniGolfGame:
     def _on_wall_thickness_change(self, val):
         if getattr(self, '_panel_updating', False):
             return
-        thickness = float(np.clip(val, 0.05, 5.0))
+        thickness = float(np.clip(val, 0.05, 2.5))
         self.cfg.single_wall_thickness_factor = thickness
-        if self.cfg.map_kind == 'single_wall':
+        if self.cfg.map_kind in {'single_wall', 'single_slit', 'double_slit', 'new_map'}:
             self.course.set_map(self.cfg.map_kind)
             self._refresh_course_assets()
             self.course.update_exponents(self.cfg.dt, self.k2, self.c64)
@@ -2998,8 +2997,22 @@ class QuantumMiniGolfGame:
                     abort_reason = "time"
                     break
 
-                if not self.cfg.flags.blitting:
+                if self.cfg.flags.blitting:
+                    canvas = self.viz.fig.canvas
+                    flush_events = getattr(canvas, "flush_events", None)
+                    if callable(flush_events):
+                        try:
+                            flush_events()
+                        except Exception:
+                            pass
+                else:
                     plt.pause(0.0001)
+
+                if self._abort_shot_requested or not self.shot_in_progress:
+                    aborted = True
+                    if abort_reason is None:
+                        abort_reason = "reset"
+                    break
 
                 n += 1
 

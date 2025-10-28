@@ -4,10 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Changes in the Hole in One Messages">
+    <list default="true" id="d2c8afbd-c966-4113-8bc8-aeb224d7b482" name="Changes" comment="Bug fixed and slider changes (values and removed Tracker Area)">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/VarsAndSliders.md" beforeDir="false" afterPath="$PROJECT_DIR$/VarsAndSliders.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Grass.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/MinigolfDemo.mp4" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/quantum_minigolf/course.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/course.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/game.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/game.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/quantum_minigolf/visuals.py" beforeDir="false" afterPath="$PROJECT_DIR$/quantum_minigolf/visuals.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/run_game.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_game.py" afterDir="false" />
@@ -321,7 +323,14 @@
       <option name="project" value="LOCAL" />
       <updated>1761407453085</updated>
     </task>
-    <option name="localTasksCounter" value="32" />
+    <task id="LOCAL-00032" summary="Bug fixed and slider changes (values and removed Tracker Area)">
+      <created>1761416414160</created>
+      <option name="number" value="00032" />
+      <option name="presentableId" value="LOCAL-00032" />
+      <option name="project" value="LOCAL" />
+      <updated>1761416414160</updated>
+    </task>
+    <option name="localTasksCounter" value="33" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -336,7 +345,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="added flags" />
     <MESSAGE value="improved tracking" />
     <MESSAGE value="Slider changes" />
     <MESSAGE value="- Hotkeys work in Control Panel focus&#10;- &quot;I&quot; also measures if shot was performed&#10;- added &quot;o&quot; hotkey to disable tracker&#10;- updated hotkey list&#10;- Changes in variables (e.g. speed to 2.5)" />
@@ -361,6 +369,7 @@
     <MESSAGE value="- Remove Legend and everything related&#10;- Change LED Recognition Threshold area and standard value&#10;-" />
     <MESSAGE value="Info Overlay and Measurement are not usabel in trim mode" />
     <MESSAGE value="Changes in the Hole in One Messages" />
-    <option name="LAST_COMMIT_MESSAGE" value="Changes in the Hole in One Messages" />
+    <MESSAGE value="Bug fixed and slider changes (values and removed Tracker Area)" />
+    <option name="LAST_COMMIT_MESSAGE" value="Bug fixed and slider changes (values and removed Tracker Area)" />
   </component>
 </project>

@@ -295,10 +295,11 @@ class Visuals:
         self.shot_counter_label.set_visible(False)
 
         msg_offset = max(6.0, Ny * 0.08)
+        bright_purple = '#d895ff'
         self.hole_msg = self.ax.text(
             Nx / 2, Ny / 2 + msg_offset, "Quantum Hole in One!",
-            color='purple', fontsize=28, fontweight='bold', ha='center', va='center',
-            bbox=dict(facecolor=(0, 0, 0, 0.72), edgecolor='purple', boxstyle='round,pad=0.6'),
+            color=bright_purple, fontsize=28, fontweight='bold', ha='center', va='center',
+            bbox=dict(facecolor=(0, 0, 0, 0.72), edgecolor=bright_purple, boxstyle='round,pad=0.6'),
             zorder=200, clip_on=False
         )
         self.hole_msg_ball = self.ax.text(
