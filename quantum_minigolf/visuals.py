@@ -386,17 +386,26 @@ class Visuals:
             overlay_alpha = float(raw_alpha)
         except Exception:
             overlay_alpha = overlay_default
+
+        # NEW: if we have a background image visible, don't let the overlay be super opaque
+        if background_loaded:
+            overlay_alpha = min(overlay_alpha, 0.25)
+
         overlay_alpha = float(min(max(overlay_alpha, 0.0), 1.0))
         self._overlay_alpha = overlay_alpha
+
         if frame_has_content is None:
             buf = getattr(self, '_frame_rgba', None)
             if isinstance(buf, np.ndarray) and buf.ndim == 3 and buf.shape[-1] == 4:
                 frame_has_content = bool(np.any(buf[..., 3]))
             else:
                 frame_has_content = False
+
         target_alpha = overlay_alpha
         if background_loaded and not frame_has_content:
+            # If there's literally no wave drawn yet, make overlay fully invisible
             target_alpha = 0.0
+
         try:
             self.im.set_alpha(target_alpha)
         except Exception:
@@ -453,9 +462,11 @@ class Visuals:
             self._background_loaded = False
 
         self._apply_wave_palette(self._background_loaded)
+        self._refresh_wave_overlay_after_background_change()
         self._update_wave_overlay_alpha()
         try:
             if self.flags.blitting:
+                self._init_blit()
                 self._blit_draw()
             else:
                 self.fig.canvas.draw_idle()
@@ -463,6 +474,20 @@ class Visuals:
             pass
 
         return bool(image_data is not None or path is None)
+
+    def _refresh_wave_overlay_after_background_change(self) -> None:
+        buf = getattr(self, '_frame_rgba', None)
+        if not isinstance(buf, np.ndarray) or buf.ndim != 3 or buf.shape[-1] != 4:
+            return
+        if self._background_loaded:
+            zero_mask = ~np.any(buf[..., :3], axis=-1)
+            if np.any(zero_mask):
+                buf[zero_mask, 3] = 0
+        try:
+            if hasattr(self, 'im') and self.im is not None:
+                self.im.set_data(buf)
+        except Exception:
+            pass
 
     def current_background_path(self) -> Path | None:
         return self._background_path

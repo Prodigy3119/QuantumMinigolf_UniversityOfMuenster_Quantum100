@@ -153,6 +153,90 @@ def _show_calibration_snapshot(
     return True
 
 
+def _enumerate_cameras(max_devices: int = 10) -> list[tuple[int, str]]:
+    """
+    Try to open several camera indexes and return a short descriptor for each
+    camera that responds.
+    """
+    try:
+        import cv2  # type: ignore
+    except Exception as exc:  # pragma: no cover - environment dependent
+        print(f"[warn] Unable to enumerate cameras (OpenCV unavailable: {exc})")
+        return []
+
+    cameras: list[tuple[int, str]] = []
+    for index in range(max_devices):
+        cap = cv2.VideoCapture(index, cv2.CAP_ANY)
+        if not cap.isOpened():
+            cap.release()
+            continue
+        backend_label = None
+        get_backend_name = getattr(cap, "getBackendName", None)
+        if callable(get_backend_name):
+            try:
+                backend_label = str(get_backend_name())
+            except Exception:
+                backend_label = None
+        if backend_label is None and hasattr(cv2, "videoio_registry"):
+            try:
+                backend_id = cap.get(cv2.CAP_PROP_BACKEND)
+                backend_label = cv2.videoio_registry.getBackendName(int(backend_id))
+            except Exception:
+                backend_label = None
+        width = height = None
+        try:
+            width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        except Exception:
+            width = height = None
+        cap.release()
+
+        detail_parts = []
+        if backend_label:
+            detail_parts.append(backend_label)
+        if width and height and width > 0 and height > 0:
+            detail_parts.append(f"{int(width)}x{int(height)}")
+        label = " | ".join(detail_parts) if detail_parts else f"Camera {index}"
+        cameras.append((index, label))
+    return cameras
+
+
+def _prompt_for_camera_choice(max_devices: int = 10) -> Optional[int]:
+    """
+    Display a camera list, prompt the user for an index, and return the
+    selection (or None if selection is aborted/unavailable).
+    """
+    cameras = _enumerate_cameras(max_devices=max_devices)
+    if not cameras:
+        print("[warn] Unable to find any cameras; continuing with the default index.")
+        return None
+
+    print("Available cameras:")
+    for idx, label in cameras:
+        print(f"  {label}: {idx}")
+    valid_indexes = {idx for idx, _ in cameras}
+
+    while True:
+        try:
+            raw = input("Select camera index: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n[warn] Camera selection cancelled; keeping existing index.")
+            return None
+        if not raw:
+            print("[info] Please type the numeric index of the desired camera.")
+            continue
+        try:
+            selection = int(raw)
+        except ValueError:
+            print(f"[warn] '{raw}' is not a valid integer.")
+            continue
+        if selection not in valid_indexes:
+            print(f"[warn] Camera index {selection} was not detected; attempting to use it anyway.")
+        else:
+            print(f"[info] Selected camera index {selection}.")
+        return selection
+
+
 def _run_calibration_helper(script_name: str) -> int:
     """
     Launch a standalone calibration helper script using the current interpreter.
@@ -239,7 +323,7 @@ def build_config(args):
         smooth_passes=1, vis_interpolation='bilinear',
         display_downsample_factor=3, low_dpi_value=48, target_fps=30,
         debounce_ms=14, path_decimation_stride=3, overlay_every=3,
-        movement_speed_scale=17.5,
+        movement_speed_scale=25.0,
         shot_time_limit=75,
         map_kind='double_slit',
         res_scale=1.0,
@@ -422,6 +506,8 @@ def parse_args():
     parser.add_argument('--no-vr', dest='vr', action='store_false', help='Disable tracker input and rely on mouse swings')
     parser.add_argument('--display-tracker', dest='display_tracker', action='store_true', help='Show the tracker debug window')
     parser.add_argument('--no-display-tracker', dest='display_tracker', action='store_false', help='Hide the tracker debug window')
+    parser.add_argument('--choose-camera', action='store_true',
+                        help='List connected cameras and prompt for the tracker camera index')
 
     # Calibration helpers
     parser.add_argument('--calibrate-course', action='store_true', help='Run manual boundary calibration before launching')
@@ -457,7 +543,18 @@ def parse_args():
 
 def main():
     args = parse_args()
+    camera_override: Optional[int] = None
+    if getattr(args, "choose_camera", False):
+        camera_override = _prompt_for_camera_choice()
+
     cfg = build_config(args)
+    if camera_override is not None:
+        cfg.tracker_camera_index = int(camera_override)
+    else:
+        try:
+            cfg.tracker_camera_index = int(getattr(cfg, "tracker_camera_index", 0))
+        except Exception:
+            cfg.tracker_camera_index = 0
 
     if args.backend:
         os.environ["QUANTUM_MINIGOLF_BACKEND"] = args.backend
@@ -504,7 +601,12 @@ def main():
         cfg.tracker_calibration_data = calibration
         print(f"[info] Course calibration loaded from {calibration_path}")
         if not (args.skip_calibration_preview or headless_requested):
-            if _show_calibration_snapshot(calibration):
+            camera_attr = getattr(cfg, "tracker_camera_index", 0)
+            try:
+                selected_camera_index = int(camera_attr)
+            except Exception:
+                selected_camera_index = 0
+            if _show_calibration_snapshot(calibration, camera_index=selected_camera_index):
                 print("[info] Displayed calibration snapshot; close the figure window if adjustments are needed.")
             else:
                 print("[warn] Unable to display calibration snapshot.")

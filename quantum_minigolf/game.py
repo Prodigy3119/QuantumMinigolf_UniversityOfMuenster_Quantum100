@@ -38,6 +38,9 @@ except Exception:  # pragma: no cover - backend specific
 class QuantumMiniGolfGame:
     def __init__(self, cfg: GameConfig):
         self.cfg = cfg
+        self._boost_factor0 = float(np.clip(getattr(self.cfg, 'boost_hole_probability_factor', 0.0), 0.0, 1.0))
+        self.cfg.boost_hole_probability_factor = float(self._boost_factor0)
+        self._measure_attempts = 0
         self._perf_enabled = bool(getattr(self.cfg, 'performance_increase', False))
         self.be = Backend()
         if self.be.USE_GPU:
@@ -68,6 +71,8 @@ class QuantumMiniGolfGame:
                 self.cfg.flags.render_paths = False
             self.cfg.flags.minimal_annotations = True
             self.cfg.flags.path_decimation = True
+        self._event_pump_interval = max(0.0, float(getattr(self.cfg, 'event_pump_interval', 0.0)))
+        self._last_event_pump = 0.0
 
         # numeric dtypes & grids
         self.f32 = np.float32
@@ -160,7 +165,10 @@ class QuantumMiniGolfGame:
         self._tracker_max_y: float | None = None
         self._tracker_base_length_px: float | None = None
         self._tracker_base_thickness_px: float | None = None
-        self._tracker_size_scale = float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.3)))
+        self._tracker_length_scale = float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.3)))
+        self._tracker_thickness_scale = float(
+            max(0.1, getattr(self.cfg, 'tracker_thickness_scale', self._tracker_length_scale))
+        )
         base_speed = float(max(1e-6, getattr(self.cfg, 'tracker_speed_base', getattr(self.cfg, 'tracker_speed_scale', 0.01))))
         self._tracker_speed_base = base_speed
         try:
@@ -211,7 +219,6 @@ class QuantumMiniGolfGame:
         self._last_recording_path: Path | None = None
         self._last_recording_is_frames = False
         self._last_recording_fps = float(max(1.0, getattr(self.cfg, 'target_fps', 30.0)))
-        self._record_next_shot_armed = False
         self._replay_render_in_progress = False
         self._live_record_in_progress = False
         self._playback_timer = None
@@ -253,13 +260,13 @@ class QuantumMiniGolfGame:
         self._gpu_rgba_buffer = None
 
         # movement-speed tuning (store baselines so slider changes keep swing tuning consistent)
-        self._movement_slider_bounds = (2.0, 25.0)
+        self._movement_slider_bounds = (1.0, 50.0)
         self._base_kmin_frac = float(getattr(cfg, 'kmin_frac', 0.15))
         self._base_kmax_frac = float(getattr(cfg, 'kmax_frac', 0.90))
         self._base_swing_power_scale = float(getattr(cfg, 'swing_power_scale', 0.05))
         self._base_impact_min_speed = float(getattr(cfg, 'impact_min_speed', 20.0))
         # direct multiplier applied to post-shot motion
-        self._movement_speed_factor = float(max(self._movement_slider_bounds[0], getattr(cfg, 'movement_speed_scale', 17.5)))
+        self._movement_speed_factor = float(np.clip(getattr(cfg, 'movement_speed_scale', 25.0), self._movement_slider_bounds[0], self._movement_slider_bounds[1]))
         self._apply_movement_speed_tuning(initial=True)
         self._init_performance_helpers()
 
@@ -396,7 +403,7 @@ class QuantumMiniGolfGame:
 
     def _apply_movement_speed_tuning(self, *, initial=False):
         bounds_min, bounds_max = self._movement_slider_bounds
-        raw_value = float(getattr(self.cfg, 'movement_speed_scale', 17.5))
+        raw_value = float(getattr(self.cfg, 'movement_speed_scale', 25.0))
         if not math.isfinite(raw_value):
             raw_value = 8.0
         clamped_value = float(min(max(raw_value, bounds_min), bounds_max))
@@ -414,14 +421,18 @@ class QuantumMiniGolfGame:
             self._refresh_slider_texts(draw=False)
 
     def _apply_tracker_size_scale(self):
-        prev_scale = float(getattr(self, '_tracker_size_scale', 0.3))
-        raw_factor = float(getattr(self.cfg, 'tracker_length_scale', 0.3))
-        if not math.isfinite(raw_factor):
-            raw_factor = 0.3
-        factor = float(np.clip(raw_factor, 0.1, 1.5))
-        self.cfg.tracker_length_scale = factor
-        self.cfg.tracker_thickness_scale = factor
-        self._tracker_size_scale = factor
+        raw_length = float(getattr(self.cfg, 'tracker_length_scale', 0.3))
+        raw_thickness = float(getattr(self.cfg, 'tracker_thickness_scale', raw_length))
+        if not math.isfinite(raw_length):
+            raw_length = 0.3
+        if not math.isfinite(raw_thickness):
+            raw_thickness = raw_length
+        length_factor = float(np.clip(raw_length, 0.1, 2.0))
+        thickness_factor = float(np.clip(raw_thickness, 0.1, 2.0))
+        self.cfg.tracker_length_scale = length_factor
+        self.cfg.tracker_thickness_scale = thickness_factor
+        self._tracker_length_scale = length_factor
+        self._tracker_thickness_scale = thickness_factor
         if self.tracker_cfg is None:
             return
         if self._tracker_base_length_px is None:
@@ -430,8 +441,8 @@ class QuantumMiniGolfGame:
             self._tracker_base_thickness_px = float(getattr(self.tracker_cfg, 'putter_thickness_px', 90.0))
         base_len = float(self._tracker_base_length_px or 0.0)
         base_thick = float(self._tracker_base_thickness_px or 0.0)
-        self.tracker_cfg.putter_length_px = max(1.0, base_len * factor)
-        self.tracker_cfg.putter_thickness_px = max(1.0, base_thick * factor)
+        self.tracker_cfg.putter_length_px = max(1.0, base_len * length_factor)
+        self.tracker_cfg.putter_thickness_px = max(1.0, base_thick * thickness_factor)
 
     def _abort_current_shot(self):
         if self.shot_in_progress:
@@ -441,6 +452,49 @@ class QuantumMiniGolfGame:
             self._abort_shot_requested = False
         if self.tracker:
             self.tracker.pop_hits()
+
+    def _pump_gui_events(self, force=False):
+        viz = getattr(self, 'viz', None)
+        if viz is None or getattr(viz, 'fig', None) is None:
+            return
+        interval = self._event_pump_interval
+        now = time.perf_counter()
+        if not force and interval > 0.0 and (now - self._last_event_pump) < interval:
+            return
+        self._last_event_pump = now
+        mpl_canvas = getattr(viz.fig, 'canvas', None)
+        flushed = False
+        if mpl_canvas is not None:
+            flush_events = getattr(mpl_canvas, "flush_events", None)
+            if callable(flush_events):
+                try:
+                    flush_events()
+                    flushed = True
+                except Exception:
+                    pass
+        processed = False
+        if QtWidgets is not None:
+            app = QtWidgets.QApplication.instance()
+            if app is not None:
+                try:
+                    app.processEvents()
+                    processed = True
+                except Exception:
+                    pass
+        if not processed and mpl_canvas is not None:
+            start_loop = getattr(mpl_canvas, "start_event_loop", None)
+            if callable(start_loop):
+                try:
+                    duration = 0.0 if interval <= 0.0 else min(interval, 0.05)
+                    start_loop(duration)
+                    processed = True
+                except Exception:
+                    pass
+        if not processed and not flushed:
+            try:
+                plt.pause(0.0001)
+            except Exception:
+                pass
 
     def _ensure_gpu_rgba_buffer(self, shape):
         if not (self.be.USE_GPU and self.cfg.flags.gpu_viz):
@@ -606,6 +660,68 @@ class QuantumMiniGolfGame:
             counter += 1
         return target
 
+    def _snapshot_canvas_geometry(self) -> dict[str, object]:
+        geometry: dict[str, object] = {}
+        fig = getattr(self.viz, 'fig', None)
+        if fig is None:
+            return geometry
+        try:
+            size = fig.get_size_inches()
+            geometry["size_inches"] = (float(size[0]), float(size[1]))
+        except Exception:
+            pass
+        try:
+            geometry["dpi"] = float(fig.get_dpi())
+        except Exception:
+            pass
+        canvas = getattr(fig, "canvas", None)
+        if canvas is not None:
+            try:
+                width, height = canvas.get_width_height()
+                geometry["pixel_size"] = (int(width), int(height))
+            except Exception:
+                pass
+        return geometry
+
+    @staticmethod
+    def _apply_canvas_geometry(fig, geometry: dict[str, object] | None) -> None:
+        if not geometry or fig is None:
+            return
+        dpi = float(geometry.get("dpi", 0.0) or 0.0)
+        size_obj = geometry.get("size_inches")
+        size_tuple: tuple[float, float] | None = None
+        if isinstance(size_obj, (tuple, list)):
+            try:
+                size_tuple = (float(size_obj[0]), float(size_obj[1]))
+            except Exception:
+                size_tuple = None
+        pixel_obj = geometry.get("pixel_size")
+        if (size_tuple is None or size_tuple[0] <= 0 or size_tuple[1] <= 0) and dpi > 0.0:
+            if isinstance(pixel_obj, (tuple, list)):
+                try:
+                    pw = float(pixel_obj[0])
+                    ph = float(pixel_obj[1])
+                    if pw > 0.0 and ph > 0.0:
+                        size_tuple = (pw / dpi, ph / dpi)
+                except Exception:
+                    pass
+        if dpi > 0.0:
+            try:
+                fig.set_dpi(dpi)
+            except Exception:
+                pass
+        if size_tuple and size_tuple[0] > 0.0 and size_tuple[1] > 0.0:
+            try:
+                fig.set_size_inches(size_tuple[0], size_tuple[1], forward=True)
+            except Exception:
+                pass
+        canvas = getattr(fig, "canvas", None)
+        if canvas is not None:
+            try:
+                canvas.draw_idle()
+            except Exception:
+                pass
+
     def _prepare_last_shot_payload(self, kvec_cpu: np.ndarray):
         if self._replay_capture_mode:
             return
@@ -632,21 +748,6 @@ class QuantumMiniGolfGame:
         }
         self._pending_last_shot_data = payload
 
-    def _arm_next_shot_recording(self):
-        prefix = f"[{LIVE_RECORD_HOTKEY}]"
-        if self._replay_render_in_progress:
-            print(f"{prefix} Wait for the current recording to finish.")
-            return
-        if self._record_next_shot_armed:
-            self._record_next_shot_armed = False
-            print(f"{prefix} Live recording disarmed.")
-            return
-        if self.shot_in_progress:
-            print(f"{prefix} Armed. The current shot will finish first; the next one will be recorded afterwards.")
-        else:
-            print(f"{prefix} Armed. The next shot will be recorded afterwards.")
-        self._record_next_shot_armed = True
-
     def _record_last_shot(
         self,
         *,
@@ -670,6 +771,7 @@ class QuantumMiniGolfGame:
             print(f"{prefix} Last shot was aborted; skipping recording.")
             return False
 
+        canvas_geometry = self._snapshot_canvas_geometry()
         try:
             cfg_snapshot = copy.deepcopy(data["config"])  # type: ignore[arg-type]
         except Exception as exc:
@@ -707,6 +809,7 @@ class QuantumMiniGolfGame:
             replay_game._recording_prefix_tag = prefix
 
             fig = replay_game.viz.fig
+            self._apply_canvas_geometry(fig, canvas_geometry)
 
             manager = getattr(fig.canvas, "manager", None)
             window = getattr(manager, "window", None) if manager is not None else None
@@ -756,6 +859,18 @@ class QuantumMiniGolfGame:
             replay_game._recording_failed = False
             replay_game._capture_recording_frame(initial=True)
 
+            preroll_seconds = float(max(
+                0.0,
+                getattr(cfg_snapshot, 'recording_preroll_seconds', getattr(self.cfg, 'recording_preroll_seconds', 0.0)),
+            ))
+            fps_for_preroll = float(getattr(self.cfg, 'recording_fps', getattr(self.cfg, 'target_fps', 30.0) or 30.0))
+            fps_for_preroll = max(1.0, fps_for_preroll)
+            extra_frames = int(round(preroll_seconds * fps_for_preroll))
+            if extra_frames > 0 and replay_game._recording_frames:
+                base_frame = replay_game._recording_frames[-1]
+                for _ in range(extra_frames):
+                    replay_game._recording_frames.append(base_frame.copy())
+
             kvec = np.array(data["kvec"], dtype=np.float32)  # type: ignore[arg-type]
             replay_game._shoot(kvec)
             replay_game._finalize_shot_recording(aborted=bool(data.get("aborted", False)))
@@ -782,16 +897,6 @@ class QuantumMiniGolfGame:
         if interactive_state:
             plt.ion()
         return False
-
-    def _auto_record_last_shot(self):
-        prefix = f"[{LIVE_RECORD_HOTKEY}]"
-        self._live_record_in_progress = True
-        try:
-            recorded = self._record_last_shot(intent=LIVE_RECORD_HOTKEY, allow_aborted=False)
-            if not recorded:
-                print(f"{prefix} Automatic recording skipped.")
-        finally:
-            self._live_record_in_progress = False
 
     def _play_last_recording(self):
         # Don't start playback if we're still recording a shot
@@ -1929,6 +2034,12 @@ class QuantumMiniGolfGame:
             crop_y2=getattr(self.cfg, 'tracker_crop_y2', None),
             threshold=int(getattr(self.cfg, 'tracker_threshold', 55)),
         )
+        camera_idx = getattr(self.cfg, 'tracker_camera_index', None)
+        if camera_idx is not None:
+            try:
+                tracker_kwargs["camera_index"] = int(camera_idx)
+            except Exception:
+                tracker_kwargs["camera_index"] = 0
         if calibration is not None:
             tracker_kwargs["frame_width"] = calibration.frame_width
             tracker_kwargs["frame_height"] = calibration.frame_height
@@ -2436,8 +2547,6 @@ class QuantumMiniGolfGame:
             replay_record_state = 'none'
         if self._live_record_in_progress:
             live_record_state = 'recording'
-        elif self._record_next_shot_armed:
-            live_record_state = 'armed'
         else:
             live_record_state = 'idle'
         if self._playback_timer is not None:
@@ -2466,7 +2575,6 @@ class QuantumMiniGolfGame:
             ("u", "Toggle control panel window", panel_state),
             ("p", "Cycle background image", self._background_state_label()),
             ("l", "Toggle interference profile view", interference_state),
-            (LIVE_RECORD_HOTKEY, "Record next shot automatically", live_record_state),
             ("v", "Record last shot (replay)", replay_record_state),
             ("d", "Play last recording", playback_state),
             ("h", "Show this hotkey list", None),
@@ -2647,13 +2755,18 @@ class QuantumMiniGolfGame:
         slider_gap = 0.055
         slider_y = 0.82
 
+        slit_height_bounds = self._slit_height_slider_bounds()
+        slit_offset_bounds = self._slit_offset_slider_bounds()
         slider_specs = [
-            ('move', 'Move Speed',     2.0, 25.0, float(self.cfg.movement_speed_scale),    0.1, '#9467bd', self._on_movement_speed_change),
+            ('move', 'Move Speed',     1.0, 50.0, float(np.clip(self.cfg.movement_speed_scale, self._movement_slider_bounds[0], self._movement_slider_bounds[1])),    0.1, '#9467bd', self._on_movement_speed_change),
             ('time', 'Shot Time',      10.0, 200.0, float(self.cfg.shot_time_limit or 75.0),    5.0, '#8c564b', self._on_shot_time_limit_change),
             ('wall', 'Wall Thickness', 0.05,2.5,  float(getattr(self.cfg, 'single_wall_thickness_factor', 1.0)), 0.05, '#17becf', self._on_wall_thickness_change),
+            ('slit_size', 'Slit Size', slit_height_bounds[0], slit_height_bounds[1], float(np.clip(getattr(self.cfg, 'slit_height', 12), slit_height_bounds[0], slit_height_bounds[1])), 1.0, '#2ca02c', self._on_slit_height_change),
+            ('slit_offset', 'Slit Position', slit_offset_bounds[0], slit_offset_bounds[1], float(np.clip(getattr(self.cfg, 'slit_center_offset', 0.0), slit_offset_bounds[0], slit_offset_bounds[1])), 1.0, '#ff9896', self._on_slit_offset_change),
             ('tracker_thresh', 'LED Recognition Threshold', 1.0, 250.0, float(getattr(self.cfg, 'tracker_threshold', 55)), 1.0, '#bcbd22', self._on_tracker_threshold_change),
-            ('tracker_speed',  'Putter Speed Increase', 0.25, 4.0, float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6)), 0.05, '#e377c2', self._on_tracker_speed_scale_change),
-            ('tracker_size',  'Putter Size',      0.1, 1.5, float(max(0.1, getattr(self.cfg, 'tracker_length_scale', 0.3))), 0.05, '#1f77b4', self._on_tracker_size_scale_change),
+            ('tracker_speed',  'Putter Speed Increase', 1.0, 10.0, float(np.clip(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6), 1.0, 10.0)), 0.1, '#e377c2', self._on_tracker_speed_scale_change),
+            ('tracker_length',  'Putter Length',      0.1, 2.0, float(np.clip(getattr(self.cfg, 'tracker_length_scale', 0.3), 0.1, 2.0)), 0.05, '#1f77b4', self._on_tracker_length_scale_change),
+            ('tracker_width',  'Putter Width',      0.1, 2.0, float(np.clip(getattr(self.cfg, 'tracker_thickness_scale', getattr(self.cfg, 'tracker_length_scale', 0.3)), 0.1, 2.0)), 0.05, '#d62728', self._on_tracker_width_scale_change),
         ]
 
         for name, label, vmin, vmax, val, step, color, callback in slider_specs:
@@ -2733,7 +2846,7 @@ class QuantumMiniGolfGame:
             return
         limit = 'inf' if self.cfg.shot_time_limit is None else f"{self.cfg.shot_time_limit:.0f}s"
         stop_mode = str(getattr(self.cfg, 'shot_stop_mode', 'time'))
-        move_slider = float(getattr(self.cfg, 'movement_speed_scale', 17.5))
+        move_slider = float(getattr(self.cfg, 'movement_speed_scale', 25.0))
         move_factor = getattr(self, '_movement_speed_factor', move_slider)
         stats.set_text(
             "Target FPS: {fps:.0f}\nShot limit: {limit}\nStop mode: {stop_mode}\nMove slider: {slider:.2f}\nSpeed factor: {factor:.2f}x".format(
@@ -2745,10 +2858,25 @@ class QuantumMiniGolfGame:
             )
         )
 
+    def _slit_height_slider_bounds(self) -> tuple[float, float]:
+        return 0.0, 25.0
+
+    def _slit_offset_slider_bounds(self) -> tuple[float, float]:
+        margin = int(self.Ny * 0.08)
+        half_sep = max(0, getattr(self.cfg, 'slit_sep', 28) // 2)
+        half_height = max(1, int(max(4, getattr(self.cfg, 'slit_height', 12)) // 2))
+        max_offset = max(0, (self.Ny - 2 * margin) // 2 - (half_sep + half_height))
+        if max_offset <= 0:
+            max_offset = 1
+        limit = float(max_offset)
+        return -limit, limit
+
     def _sync_config_panel_values(self):
         if not self._config_panel_active or not self._panel_sliders:
             return
         ratio = float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6))
+        slit_height_bounds = self._slit_height_slider_bounds()
+        slit_offset_bounds = self._slit_offset_slider_bounds()
         values = {
             'lin': float(self.cfg.shot_friction_linear),
             'quad': float(self.cfg.shot_friction_quadratic),
@@ -2758,8 +2886,11 @@ class QuantumMiniGolfGame:
             'time': float(np.clip(self.cfg.shot_time_limit if self.cfg.shot_time_limit is not None else 75.0, 10.0, 200.0)),
             'wall': float(np.clip(getattr(self.cfg, 'single_wall_thickness_factor', 1.0), 0.05, 2.5)),
             'tracker_thresh': float(np.clip(getattr(self.cfg, 'tracker_threshold', 55), 1.0, 250.0)),
-            'tracker_speed': float(np.clip(ratio, 0.25, 4.0)),
-            'tracker_size': float(np.clip(getattr(self.cfg, 'tracker_length_scale', 0.3), 0.1, 1.5)),
+            'tracker_speed': float(np.clip(ratio, 1.0, 10.0)),
+            'tracker_length': float(np.clip(getattr(self.cfg, 'tracker_length_scale', 0.3), 0.1, 2.0)),
+            'tracker_width': float(np.clip(getattr(self.cfg, 'tracker_thickness_scale', 0.3), 0.1, 2.0)),
+            'slit_size': float(np.clip(getattr(self.cfg, 'slit_height', 12), slit_height_bounds[0], slit_height_bounds[1])),
+            'slit_offset': float(np.clip(getattr(self.cfg, 'slit_center_offset', 0.0), slit_offset_bounds[0], slit_offset_bounds[1])),
         }
         self._panel_updating = True
         try:
@@ -2803,14 +2934,34 @@ class QuantumMiniGolfGame:
         if 'tracker_speed' in sliders:
             factor = float(self.cfg.tracker_speed_scale / max(self._tracker_speed_base, 1e-6))
             sliders['tracker_speed'].valtext.set_text(f"{factor:.2f}x")
-        if 'tracker_size' in sliders:
-            sliders['tracker_size'].valtext.set_text(f"{float(max(0.1, self.cfg.tracker_length_scale)):.2f}x")
+        if 'tracker_length' in sliders:
+            sliders['tracker_length'].valtext.set_text(f"{float(max(0.1, self.cfg.tracker_length_scale)):.2f}x")
+        if 'tracker_width' in sliders:
+            sliders['tracker_width'].valtext.set_text(f"{float(max(0.1, self.cfg.tracker_thickness_scale)):.2f}x")
+        if 'slit_size' in sliders:
+            sliders['slit_size'].valtext.set_text(f"{int(round(getattr(self.cfg, 'slit_height', 12)))}")
+        if 'slit_offset' in sliders:
+            sliders['slit_offset'].valtext.set_text(f"{float(getattr(self.cfg, 'slit_center_offset', 0.0)):+.0f}")
         if 'cubic_text' in self._panel_elements:
             cubic = max(0.0, 1.0 - self.cfg.shot_friction_linear - self.cfg.shot_friction_quadratic)
             self._panel_elements['cubic_text'].set_text(f"Friction Cubic: {cubic:.3f}")
         self._update_panel_stats()
         if draw:
             self._panel_draw_idle()
+
+    def _rebuild_course_geometry(self):
+        self.course.set_map(self.cfg.map_kind)
+        self._refresh_course_assets()
+        self.course.update_exponents(self.cfg.dt, self.k2, self.c64)
+        self.viz.set_course_patches(self.course.course_patches)
+        if self._mode_allows_quantum():
+            self._draw_idle_wave_preview()
+        elif self._mode_allows_classical():
+            self.viz.draw_frame(np.zeros((self.Ny, self.Nx), dtype=np.float32), plot_wave=False)
+
+    def _apply_slit_geometry_update(self):
+        if self.cfg.map_kind in {'single_slit', 'double_slit'}:
+            self._rebuild_course_geometry()
 
     def _on_friction_slider_change(self, _=None):
         if not self._config_panel_active or 'lin' not in self._panel_sliders:
@@ -2876,15 +3027,8 @@ class QuantumMiniGolfGame:
             return
         thickness = float(np.clip(val, 0.05, 2.5))
         self.cfg.single_wall_thickness_factor = thickness
-        if self.cfg.map_kind in {'single_wall', 'single_slit', 'double_slit', 'new_map'}:
-            self.course.set_map(self.cfg.map_kind)
-            self._refresh_course_assets()
-            self.course.update_exponents(self.cfg.dt, self.k2, self.c64)
-            self.viz.set_course_patches(self.course.course_patches)
-            if self._mode_allows_quantum():
-                self._draw_idle_wave_preview()
-            elif self._mode_allows_classical():
-                self.viz.draw_frame(np.zeros((self.Ny, self.Nx), dtype=np.float32), plot_wave=False)
+        if self.cfg.map_kind in {'single_wall', 'single_slit', 'double_slit', 'Uni_Logo', 'new_map'}:
+            self._rebuild_course_geometry()
         self._refresh_slider_texts(draw=False)
         self._panel_draw_idle()
 
@@ -2902,18 +3046,59 @@ class QuantumMiniGolfGame:
     def _on_tracker_speed_scale_change(self, val):
         if getattr(self, '_panel_updating', False):
             return
-        factor = float(np.clip(val, 0.25, 4.0))
+        factor = float(np.clip(val, 1.0, 10.0))
         self.cfg.tracker_speed_scale = self._tracker_speed_base * factor
         self._refresh_slider_texts(draw=False)
         self._panel_draw_idle()
 
-    def _on_tracker_size_scale_change(self, val):
+    def _on_tracker_length_scale_change(self, val):
         if getattr(self, '_panel_updating', False):
             return
-        factor = float(np.clip(val, 0.1, 1.5))
+        factor = float(np.clip(val, 0.1, 2.0))
         self.cfg.tracker_length_scale = factor
+        self._apply_tracker_size_scale()
+        self._refresh_slider_texts(draw=False)
+        self._panel_draw_idle()
+
+    def _on_tracker_width_scale_change(self, val):
+        if getattr(self, '_panel_updating', False):
+            return
+        factor = float(np.clip(val, 0.1, 2.0))
         self.cfg.tracker_thickness_scale = factor
         self._apply_tracker_size_scale()
+        self._refresh_slider_texts(draw=False)
+        self._panel_draw_idle()
+
+    def _on_slit_height_change(self, val):
+        if getattr(self, '_panel_updating', False):
+            return
+        vmin, vmax = self._slit_height_slider_bounds()
+        height = float(np.clip(val, vmin, vmax))
+        self.cfg.slit_height = int(round(height))
+        offset_min, offset_max = self._slit_offset_slider_bounds()
+        current_offset = float(getattr(self.cfg, 'slit_center_offset', 0.0))
+        clamped_offset = float(np.clip(current_offset, offset_min, offset_max))
+        if clamped_offset != current_offset:
+            self.cfg.slit_center_offset = clamped_offset
+            slider = self._panel_sliders.get('slit_offset')
+            if slider is not None:
+                prev_state = getattr(self, '_panel_updating', False)
+                self._panel_updating = True
+                try:
+                    slider.set_val(clamped_offset)
+                finally:
+                    self._panel_updating = prev_state
+        self._apply_slit_geometry_update()
+        self._refresh_slider_texts(draw=False)
+        self._panel_draw_idle()
+
+    def _on_slit_offset_change(self, val):
+        if getattr(self, '_panel_updating', False):
+            return
+        vmin, vmax = self._slit_offset_slider_bounds()
+        offset = float(np.clip(val, vmin, vmax))
+        self.cfg.slit_center_offset = offset
+        self._apply_slit_geometry_update()
         self._refresh_slider_texts(draw=False)
         self._panel_draw_idle()
 
@@ -2953,6 +3138,8 @@ class QuantumMiniGolfGame:
         self._last_density_cpu = None
         self._last_measure_xy = None
         self._last_measure_prob = None
+        self._measure_attempts = 0
+        self.cfg.boost_hole_probability_factor = float(self._boost_factor0)
         self._last_ex = None
         self._last_ey = None
         self._last_phase_cpu = None
@@ -2969,9 +3156,6 @@ class QuantumMiniGolfGame:
         self.last_mouse_pos = None
         self.last_mouse_t = None
         self.viz.indicator_patch.set_visible(False)
-
-        # reset bias factor
-        self._boost_factor0 = float(self.cfg.boost_hole_probability_factor)
         if self.tracker:
             self._update_tracker_reference()
 
@@ -3352,6 +3536,8 @@ class QuantumMiniGolfGame:
         if not simulate_classical and not simulate_wave:
             return
 
+        self._measure_attempts = 0
+        self.cfg.boost_hole_probability_factor = float(self._boost_factor0)
         self._prepare_last_shot_payload(kvec_cpu)
 
         shot_stop_mode = str(getattr(self.cfg, 'shot_stop_mode', 'time')).lower()
@@ -3698,16 +3884,7 @@ class QuantumMiniGolfGame:
                     abort_reason = "time"
                     break
 
-                if self.cfg.flags.blitting:
-                    canvas = self.viz.fig.canvas
-                    flush_events = getattr(canvas, "flush_events", None)
-                    if callable(flush_events):
-                        try:
-                            flush_events()
-                        except Exception:
-                            pass
-                else:
-                    plt.pause(0.0001)
+                self._pump_gui_events()
 
                 if self._abort_shot_requested or not self.shot_in_progress:
                     aborted = True
@@ -3812,16 +3989,10 @@ class QuantumMiniGolfGame:
                 payload["show_interference"] = bool(self.show_interference)
                 self._last_shot_data = payload
             auto_requested = False
-            if not self._replay_capture_mode and self._record_next_shot_armed:
+            if not self._replay_capture_mode:
                 auto_requested = True
             if not self._replay_capture_mode:
                 self._pending_last_shot_data = None
-                self._record_next_shot_armed = False
-            if auto_requested:
-                if self._last_shot_data is not None and not bool(self._last_shot_data.get("aborted", False)):
-                    self._auto_record_last_shot()
-                else:
-                    print(f"[{LIVE_RECORD_HOTKEY}] Shot aborted; automatic recording skipped.")
             if self._recording_active:
                 self._capture_recording_frame()
                 self._finalize_shot_recording(aborted=bool(aborted))
@@ -3910,10 +4081,12 @@ class QuantumMiniGolfGame:
         if (self.cfg.boost_hole_probability and
             self.cfg.boost_hole_probability_autoincrement_on_measure and
                 self.cfg.boost_hole_probability_increment > 0.0):
-            self.cfg.boost_hole_probability_factor = float(
-                min(1.0, self.cfg.boost_hole_probability_factor +
-                    self.cfg.boost_hole_probability_increment)
-            )
+            increment = float(max(0.0, self.cfg.boost_hole_probability_increment))
+            if increment > 0.0:
+                self._measure_attempts += 1
+                next_factor = float(
+                    min(1.0, max(0.0, self._boost_factor0 + self._measure_attempts * increment)))
+                self.cfg.boost_hole_probability_factor = next_factor
 
         if self.cfg.flags.blitting:
             self.viz._blit_draw()

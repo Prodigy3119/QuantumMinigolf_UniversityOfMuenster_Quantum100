@@ -42,6 +42,7 @@ class GameConfig:
     single_wall_thickness_factor: float = 1.0
     slit_height: int = 12
     slit_sep: int = 28
+    slit_center_offset: float = 0.0
     center_wall_width: int = 6
 
     # Absorbing boundary
@@ -92,7 +93,7 @@ class GameConfig:
     # Bias (toward hole)
     boost_hole_probability: bool = True
     boost_hole_probability_factor: float = 0.0
-    boost_hole_probability_increment: float = 0.02
+    boost_hole_probability_increment: float = 0.05
     boost_hole_probability_autoincrement_on_measure: bool = True
 
     # Visibility
@@ -105,17 +106,19 @@ class GameConfig:
     display_downsample_factor: int = 1
     low_dpi_value: int = 72
     target_fps: float = 30
+    recording_preroll_seconds: float = 0.35
+    event_pump_interval: float = 0.0  # Seconds between GUI event polls during shots (0 = every frame)
     debounce_ms: int = 12
     path_decimation_stride: int = 4
     overlay_every: int = 3
 
     # Motion scaling
-    movement_speed_scale: float = 17.5  # Multiplier applied to ball/wave travel after a shot
+    movement_speed_scale: float = 25.0  # Multiplier applied to ball/wave travel after a shot
 
     # Tracker integration
     use_tracker: bool = True
     tracker_speed_base: float = 0.01
-    tracker_speed_scale: float = 0.0175
+    tracker_speed_scale: float = 0.05
     tracker_threshold: int = 55
     tracker_length_scale: float = 0.3
     tracker_thickness_scale: float = 0.3
@@ -129,6 +132,7 @@ class GameConfig:
     tracker_calibration_path: Optional[str] = None
     show_control_panel: bool = True
     tracker_overlay_initial: bool = False
+    tracker_camera_index: int = 0
 
     tracker_auto_scale: bool = False
     tracker_max_span_px: float = 220.0

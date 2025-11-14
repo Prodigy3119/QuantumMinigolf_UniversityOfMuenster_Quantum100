@@ -128,7 +128,15 @@ class Course:
                 x2 = min(self.Nx - 3, cx + 1)
             y1, y2 = margin, Ny - margin
             V[y1:y2, x1:x2] = self.cfg.V_wall * height_scale
-            cy = Ny // 2
+            offset_raw = float(getattr(self.cfg, 'slit_center_offset', 0.0))
+            offset = int(round(offset_raw))
+            half_sep = max(0, slit_sep // 2)
+            half_height = max(1, slit_h // 2)
+            min_cy = y1 + half_sep + half_height
+            max_cy = y2 - half_sep - half_height
+            if min_cy > max_cy:
+                min_cy = max_cy = (y1 + y2) // 2
+            cy = int(np.clip(Ny // 2 + offset, min_cy, max_cy))
             s1y1 = max(y1, cy - slit_sep // 2 - slit_h // 2)
             s1y2 = min(y2, cy - slit_sep // 2 + slit_h // 2)
             s2y1 = max(y1, cy + slit_sep // 2 - slit_h // 2)
@@ -151,7 +159,14 @@ class Course:
                 x2 = min(self.Nx - 3, cx + 1)
             y1, y2 = margin, Ny - margin
             V[y1:y2, x1:x2] = self.cfg.V_wall * height_scale
-            cy = Ny // 2
+            offset_raw = float(getattr(self.cfg, 'slit_center_offset', 0.0))
+            offset = int(round(offset_raw))
+            half_height = max(1, slit_h // 2)
+            min_cy = y1 + half_height
+            max_cy = y2 - half_height
+            if min_cy > max_cy:
+                min_cy = max_cy = (y1 + y2) // 2
+            cy = int(np.clip(Ny // 2 + offset, min_cy, max_cy))
             sy1 = max(y1, cy - slit_h // 2)
             sy2 = min(y2, cy + slit_h // 2)
             V[sy1:sy2, x1:x2] = 0.0
@@ -272,8 +287,20 @@ class Course:
         self.max_absorber = float(np.max(self.W_absorb_cpu)) if self.W_absorb_cpu.size else 0.0
         self._last_dt: float | None = None
 
+        # Changing the map invalidates the cached propagators; rebuild on next update_exponents call.
+        self.expV_half = None
+        self.expK = None
+
     def update_exponents(self, dt: float, k2, dtype):
-        if self._last_dt is not None and abs(self._last_dt - dt) <= 1e-12:
+        cache_valid = (
+            self.expV_half is not None
+            and self.expK is not None
+            and self._last_dt is not None
+            and abs(self._last_dt - dt) <= 1e-12
+            and getattr(self.expV_half, "shape", None) == getattr(self.V, "shape", None)
+            and getattr(self.expK, "shape", None) == getattr(k2, "shape", None)
+        )
+        if cache_valid:
             return
         # expV_half = exp(((-iV) - W) * dt/2), expK = exp(-i k^2 dt / 2)
         xp = self.be.xp
